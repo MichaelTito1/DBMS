@@ -1,41 +1,60 @@
 import java.io.*;
+import java.util.Hashtable;
 import java.util.Vector;
 
 public class Bucket implements Serializable {
     private static final long serialVersionUID = 1L;
     private int maxRows;
-    private Vector<String> rowAddress;
-    private Object min, max;
-    private String path = "src\\main\\resources\\data";
+// <pageaddress, rowNum>
+    // attributes needed to locate a row
+    private Hashtable<String, Integer> rowAddress; // hashtable contains page address and row number(s)
+    private Vector<String> indexedCols;
 
-    public Bucket(String path, int maxRows) {
+    private Vector<Object> min;
+    private Vector<Object> max; // min and max for each dimension [done]
+    private String path;
+
+    /**
+     * Constructor initializes the bucket attributes and saves it on disk
+     * @param path path of saving this bucket
+     * @param maxRows   maximum capacity of the bucket
+     * @param indexedCols   vector of column names on which the index is created.
+     * @throws DBAppException
+     */
+    public Bucket(String path, int maxRows, Vector<String> indexedCols) throws DBAppException {
         this.maxRows = maxRows;
-        rowAddress = new Vector<String>();
+        rowAddress = new Hashtable<String, Integer>();
         this.path = path;
+        this.indexedCols = indexedCols;
+
+        min = new Vector<Object>(indexedCols.size());
+        max = new Vector<Object>(indexedCols.size());
+
+        save();
+    }
+
+    public Vector<Object> getMin() {
+        return min;
+    }
+
+    public void setMin(Vector<Object> min) {
+        this.min = min;
+    }
+
+    public Vector<Object> getMax() {
+        return max;
+    }
+
+    public void setMax(Vector<Object> max) {
+        this.max = max;
     }
 
     public int getMaxRows() {
         return maxRows;
     }
 
-    public Vector<String> getRowAddress() {
+    public Hashtable<String, Integer> getRowAddress() {
         return rowAddress;
-    }
-
-    public Object getMin() {
-        return min;
-    }
-
-    public void setMin(Object min) {
-        this.min = min;
-    }
-
-    public void setMax(Object max) {
-        this.max = max;
-    }
-
-    public Object getMax() {
-        return max;
     }
 
     public void save() throws DBAppException {
