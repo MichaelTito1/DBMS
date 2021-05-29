@@ -5,7 +5,6 @@ import java.util.Vector;
 public class Bucket implements Serializable {
     private static final long serialVersionUID = 1L;
     private int maxRows;
-// <pageaddress, rowNum>
     // attributes needed to locate a row
     private Hashtable<String, Integer> rowAddress; // hashtable contains page address and row number(s)
     private Vector<String> indexedCols;

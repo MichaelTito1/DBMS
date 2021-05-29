@@ -19,11 +19,13 @@ public class Table implements Serializable{
 	
 	private static final long serialVersionUID = 1L;
 	private String tableName, primaryKey, path;
-	private transient Hashtable<String, String> htblColNameType, htblColNameMin, htblColNameMax;
+	private transient Hashtable<String, String> htblColNameType, htblColNameMin, htblColNameMax, htblColNameIndexed;
 	private int maxPageSize; 
 	private int it = -1; //Iterator on pages
 	private Hashtable<String, Integer> colOrder = new Hashtable<String, Integer>();
 	private Vector<String> pageNames;
+
+	private Vector<GridIndex> index; // a vector of all indices created on this table
 	// SHOULD WE KEEP AN ARRAY OF PAGES (SIMILAR TO WHAT WE DID WITH PAGES AND Rows) ??!!!! NO
 	
 	
@@ -92,7 +94,8 @@ public class Table implements Serializable{
 		this.htblColNameType = new Hashtable<String, String>();
 		this.htblColNameMin = new Hashtable<String, String>();
 		this.htblColNameMax = new Hashtable<String, String>(); 
-		
+
+		this.htblColNameIndexed = new Hashtable<String,String>();
 		try {
 			br = new BufferedReader(new FileReader(metadataPath));
 			while( (line=br.readLine()) != null){
@@ -105,6 +108,8 @@ public class Table implements Serializable{
 				this.htblColNameType.put(colName, values[2]);
 				this.htblColNameMin.put(colName, values[5]);
 				this.htblColNameMax.put(colName, values[6]);
+
+				this.htblColNameIndexed.put(colName, values[4]);
 			}
 			br.close();
 		} catch (FileNotFoundException e) {
@@ -841,5 +846,10 @@ public class Table implements Serializable{
 		pageNames.remove(i);
 		it--;
 		this.save();
+	}
+
+	public void addIndex(GridIndex gi) throws DBAppException {
+		index.add(gi);
+		save();
 	}
 }

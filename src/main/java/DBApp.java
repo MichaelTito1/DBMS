@@ -92,7 +92,15 @@ public class DBApp implements DBAppInterface {
 	public void createIndex(String tableName, String[] columnNames)
 			throws DBAppException {
 		// TODO Auto-generated method stub
+		// load table
+		Table t = getTable(tableName);
 
+		// create the new index on the requested columns
+        int maxBucketSize = Integer.parseInt(prop.getProperty("MaximumKeysCountinIndexBucket"));
+        GridIndex gi = new GridIndex(mainDir, tableName, columnNames, maxBucketSize);
+
+        // add the index to the table
+        t.addIndex(gi);
 	}
 
 	@Override

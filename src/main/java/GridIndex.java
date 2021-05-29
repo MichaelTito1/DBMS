@@ -22,15 +22,16 @@ public class GridIndex implements Serializable {
     /**
      * Constructor:
      * 1. assigns index path, max row capacity of each bucket and indexed columns
-     * 2. creates grid array dynamically
-     * 3. set the name scheme of the index
+     * 2. creates grid array dynamically.
+     * 3. set the name scheme of the index.
+     * 4. edit metadata info for indexed columns.
      * @param path
      * @param tableName
      * @param maxRowsPerBucket
      * @param colNames
      * @throws DBAppException
      */
-    public GridIndex(String path, String tableName, int maxRowsPerBucket, String[] colNames) throws DBAppException {
+    public GridIndex(String path, String tableName, String[] colNames, int maxRowsPerBucket) throws DBAppException {
         this.path = path;
         this.tableName = tableName;
         this.maxRowsPerBucket = maxRowsPerBucket;
@@ -51,6 +52,50 @@ public class GridIndex implements Serializable {
 
         // save the created index
         save();
+
+        // edit the metadata.csv file accordingly
+        editMetadata(tableName, indexedCols);
+    }
+
+    /**
+     * edits indexed column info in metadata.csv file.
+     * @param tableName
+     * @param colNames
+     * @throws DBAppException
+     */
+    private void editMetadata(String tableName, Vector<String> colNames) throws DBAppException {
+        // load metadata.csv file from disk.
+        String metadataPath = "src\\main\\resources\\metadata.csv";
+        String line;
+        FileWriter fw;
+        BufferedReader br;
+
+        try {
+            br = new BufferedReader(new FileReader(metadataPath));
+            fw = new FileWriter("metadata.csv");
+            while( (line=br.readLine()) != null){
+                String [] values = line.split(",");
+                // if table name is not found in this line, append as is and continue.
+                if( !(values[0].equals(tableName)) ){
+                    fw.append(line);
+                    continue;
+                }
+                // if column name in this line is found in the vector of indexed cols,
+                // change indexed = true , then append and continue;
+                if(colNames.contains(values[1])){
+                    values[4] = "true";
+                    String newLine = String.join(",", values); // append all array values, separated by comma
+                    fw.append(newLine);
+                }
+            }
+            fw.flush();
+            fw.close();
+            br.close();
+        } catch (FileNotFoundException e) {
+            throw new DBAppException(e.getMessage());
+        } catch (IOException e1) {
+            throw new DBAppException(e1.getMessage());
+        }
     }
 
     /**
