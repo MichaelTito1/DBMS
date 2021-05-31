@@ -14,7 +14,8 @@ public class Bucket implements Serializable {
     private Vector<Object> min;
     private Vector<Object> max; // min and max for each dimension [done]
     private String path;
-
+    private Bucket nextBucket = null; // overflow bucket
+    private GridIndex gi;
     /**
      * Constructor initializes the bucket attributes and saves it on disk
      * @param path path of saving this bucket

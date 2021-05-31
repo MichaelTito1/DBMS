@@ -152,3 +152,20 @@ public class GridIndex implements Serializable {
         if(checkBucketAvailable()
     }
 }
+
+
+// 2. place in this bucket in order [dado, thomas]
+
+//0. if bucket is empty then insert into it directly
+//if (bucket.size()==0)
+// bucket.rowAddress.
+
+//1. if bucket is not full (maxRowsPerBucket not reached)
+
+//2. if bucket is full (maxRowsPerBucket reached) create an overflow bucket
+// and insert into it directly
+// if(bucket.size()==maxRowsPerBucket)
+// bucket overFlow = createBucket(Vector<Object> min, Vector<Object> max)
+//bucket.setOverFlowBucket(overFlow)
+//overFlow.rowAddress.insert(rowAddress)
+
