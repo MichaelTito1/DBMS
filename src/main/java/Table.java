@@ -27,15 +27,14 @@ public class Table implements Serializable{
 
 	private Vector<GridIndex> index; // a vector of all indices created on this table
 	// SHOULD WE KEEP AN ARRAY OF PAGES (SIMILAR TO WHAT WE DID WITH PAGES AND Rows) ??!!!! NO
-	
-	
+
 	public Table(String path,
-			String tableName,
-			String primaryKey,
-			int maxPageSize,
-			Hashtable<String, String> htblColNameType,
-			Hashtable<String, String> htblColNameMin,
-			Hashtable<String, String> htblColNameMax) throws DBAppException{
+				 String tableName,
+				 String primaryKey,
+				 int maxPageSize,
+				 Hashtable<String, String> htblColNameType,
+				 Hashtable<String, String> htblColNameMin,
+				 Hashtable<String, String> htblColNameMax) throws DBAppException{
 		
 		// Initializing attributes
 		this.path = path;
@@ -46,13 +45,13 @@ public class Table implements Serializable{
 		this.htblColNameType = htblColNameType;  
 		this.htblColNameMin = htblColNameMin;	  
 		this.htblColNameMax = htblColNameMax;  
-	
+		this.index = new Vector<GridIndex>();
 //		readColConstraints();
 		
 		// Create directory of the table
 		File dir = new File(path);
 		dir.mkdirs();
-		
+
 //		//Create Page
 //		createPage();
 //		pageNames.add(tableName+"_"+"page"+it+".class");
@@ -142,7 +141,7 @@ public class Table implements Serializable{
 		return p;
 	}
 	
-	public void insert(Hashtable<String, Object> htblColNameValue) throws DBAppException{
+	public Vector<Object> insert(Hashtable<String, Object> htblColNameValue) throws DBAppException{
 		/*
 		 * 1. check not null
 		 * 2. check valid datatypes
@@ -150,24 +149,28 @@ public class Table implements Serializable{
 		 * 4. check not duplicate clusteringKey
 		 * 5. add record
 		 */
+		Vector<Object> rowPagePos = new Vector<Object>(); // vector of the 3 things to be returned.. useful for index insertion
 
 		checkColumns(htblColNameValue);
 		boolean pkFound = checkPrimaryKey(htblColNameValue);
 		//if a duplicate primary key is found, don't insert
 		if(pkFound){
 			System.out.println("Primary key " + htblColNameValue.get(primaryKey).toString() +" already exists.");
-			return;
+			return null;
 		}
 
 		// Create a new Row instance for insertion
 		Row r = makeNewRow(htblColNameValue);
+		rowPagePos.add(r);
 
 		//first, if table is empty, create a new page and insert directly.
 		if(pageNames.size() == 0) {
 			Page p = this.createPage();
 			p.addRow(r);
 			System.out.println("Insertion successful");
-			return;
+			rowPagePos.add(p);
+			rowPagePos.add(0);
+			return rowPagePos;
 		}
 
 		// get position of insertion (page index, position in page)
@@ -185,10 +188,15 @@ public class Table implements Serializable{
 			if(last.isFull()){
 				Page p = createPage();
 				p.addRow(r);
+				rowPagePos.add(p);
+				rowPagePos.add(0);
 			}
-			else
+			else {
 				last.addRow(r);
-			return ;
+				rowPagePos.add(last);
+				rowPagePos.add(last.getRow().size()-1);
+			}
+			return rowPagePos;
 		}
 		// Read the current page
 		Page curPage = getPage(pos.get(0));
@@ -200,16 +208,23 @@ public class Table implements Serializable{
 		if(!curPage.isFull() ){
 			if(pos.get(1) == -1){
 				curPage.addRow(r);
-//				System.out.println("insertion successfully");
-				return ;
+				rowPagePos.add(curPage);
+				rowPagePos.add(curPage.getRow().size()-1);
+				return rowPagePos;
 			}
 			// YOU NEED TO SEE WHICH ROW IS BIGGER !!!!!!
 			Row r1 = curPage.getRow(pos.get(1));
 			int res = compareObjects(r, r1);
-			if(res < 0)
-				curPage.addRow(r, pos.get(1));	// since we already compared pk values, insert directly
-			else
-				curPage.addRow(r, pos.get(1)+1);
+			if(res < 0) {
+				curPage.addRow(r, pos.get(1));    // since we already compared pk values, insert directly
+				rowPagePos.add(curPage);
+				rowPagePos.add(pos.get(1));
+			}
+			else{
+					curPage.addRow(r, pos.get(1) + 1);
+					rowPagePos.add(curPage);
+					rowPagePos.add(pos.get(1)+1);
+				}
 		}
 		else{ 
 			//if the current page is the last one, create a new page normally
@@ -224,10 +239,15 @@ public class Table implements Serializable{
 				//Row r1 is the row at position of insertion
 				Row r1 = curPage.getRow(pos.get(1));
 				int res = compareObjects(r, r1);
-				if(res < 0)
+				rowPagePos.add(curPage);
+				if(res < 0) {
 					curPage.addRow(r, pos.get(1));
-				else
-					curPage.addRow(r, pos.get(1)+1);
+					rowPagePos.add(pos.get(1));
+				}
+				else{
+						curPage.addRow(r, pos.get(1) + 1);
+						rowPagePos.add(pos.get(1)+1);
+					}
 			}
 			else{
 				// Else check the next page. If it's not full, insert. Else, create a new page with special procedures
@@ -238,6 +258,7 @@ public class Table implements Serializable{
 				//if the next page is not full, shift to its top the last row, then insert in curPage
 				if( !nextPage.isFull() ){
 					// if I want to insert in the last row, compare first then insert
+					rowPagePos.add(nextPage);
 					if(pos.get(1) == lastRowIdx){
 						Row r1 = curPage.getRow(pos.get(1));
 						int res = compareObjects(r, r1);
@@ -245,14 +266,16 @@ public class Table implements Serializable{
 							nextPage.addRow(r1,0);
 							curPage.deleteRow(lastRowIdx);
 							curPage.addRow(r);
+							rowPagePos.add(lastRowIdx);
 						}
 						else{
 							// this else part should never be reached because if the
 							// last row is smaller than insertion row, this page should
 							// not be selected for insertion.
 							nextPage.addRow(r, 0);
+							rowPagePos.add(0);
 						}
-						return;
+						return rowPagePos;
 					}
 					Row lastRow = curPage.getRow(lastRowIdx);
 					nextPage.addRow(lastRow, 0);
@@ -261,10 +284,14 @@ public class Table implements Serializable{
 					// YOU NEED TO SEE WHICH ROW IS BIGGER !!!!!!
 					Row r1 = curPage.getRow(pos.get(1));
 					int res = compareObjects(r, r1);
-					if(res < 0)
+					if(res < 0) {
 						curPage.addRow(r, pos.get(1));
-					else
-						curPage.addRow(r, pos.get(1)+1);
+						rowPagePos.add(pos.get(1));
+					}
+					else {
+						curPage.addRow(r, pos.get(1) + 1);
+						rowPagePos.add(pos.get(1)+1);
+					}
 				}
 				else{
 					// if the next page is also full, create a new page and shift to it the last
@@ -277,14 +304,19 @@ public class Table implements Serializable{
 							newPage.addRow(r1,0);
 							curPage.deleteRow(lastRowIdx);
 							curPage.addRow(r);
+
+							rowPagePos.add(curPage);
+							rowPagePos.add(lastRowIdx);
 						}
 						else{
 							// this else part should never be reached because if the
 							// last row is smaller than insertion row, this page should
 							// not be selected for insertion.
 							newPage.addRow(r, 0);
+							rowPagePos.add(newPage);
+							rowPagePos.add(0);
 						}
-						return;
+						return rowPagePos;
 					}
 					Row lastRow = curPage.getRow(lastRowIdx);
 					newPage.addRow(lastRow);
@@ -292,15 +324,21 @@ public class Table implements Serializable{
 					
 					Row r1 = curPage.getRow(pos.get(1));
 					int res = compareObjects(r, r1);
-					if(res < 0)
+					rowPagePos.add(curPage);
+					if(res < 0) {
 						curPage.addRow(r, pos.get(1));
-					else
-						curPage.addRow(r, pos.get(1)+1);
+						rowPagePos.add(pos.get(1));
+					}
+					else {
+						curPage.addRow(r, pos.get(1) + 1);
+						rowPagePos.add(pos.get(1)+1);
+					}
 				}
 			}
 		}
 		this.save();
 		System.out.println("Insertion successful.");
+		return rowPagePos;
 	}
 
 	// this method converts date of format like Sun Oct 17 00:00:00 EET 1948
@@ -851,5 +889,27 @@ public class Table implements Serializable{
 	public void addIndex(GridIndex gi) throws DBAppException {
 		index.add(gi);
 		save();
+	}
+
+	public Vector<GridIndex> getIndex() {
+		return index;
+	}
+
+	public Hashtable<String, String> getHtblColNameType() {
+		return htblColNameType;
+	}
+
+	public Hashtable<String, String> getHtblColNameMax() {
+		return htblColNameMax;
+	}
+
+	/**
+	 * this method inserts the given row in all indexes created in this table.
+	 * @param rowPagePos a vector that contains [row to be inserted, page that contains the row, position of row in its page]
+	 */
+	public void insertIntoIndexes(Vector<Object> rowPagePos) {
+		for(GridIndex gi : index){
+			gi.insert(rowPagePos, htblColNameType);
+		}
 	}
 }

@@ -108,7 +108,7 @@ public class GridIndex implements Serializable {
      * @throws DBAppException
      */
     public Bucket createBucket(Vector<Object> min, Vector<Object> max) throws DBAppException {
-        Bucket b = new Bucket(path+indexName+"_bucket"+bucketCount+".class", maxRowsPerBucket, indexedCols);
+        Bucket b = new Bucket(path+indexName+"_bucket"+bucketCount+".class", maxRowsPerBucket, indexedCols, this);
         bucketCount++;
         b.setMin(min);
         b.setMax(max);
@@ -133,5 +133,22 @@ public class GridIndex implements Serializable {
         } catch (IOException e) {
             throw new DBAppException(e.getMessage());
         }
+    }
+
+    /**
+     * This method is used to insert the row in the correct position in the index
+     * @param rowPagePos
+     */
+    public void insert(Vector<Object> rowPagePos, Hashtable<String,String> htbl){
+        // does some wizardry to find the suitable bucket
+
+        // 1.check if bucket is empty then insert
+        // 2.if bucket is not empty and have space insert in the sorted place
+        // 3.if bucket is full , check the index
+        //  if it's the last row in bucket ,  create a overflow bucket and put in  it
+        //  else put it in the sorted position and put the last row in an overflow bucket
+        // when the bucket is found, pass the suitable attributes bucket.insert(row
+        Bucket b;
+        if(checkBucketAvailable()
     }
 }

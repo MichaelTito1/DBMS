@@ -96,8 +96,10 @@ public class DBApp implements DBAppInterface {
 		Table t = getTable(tableName);
 
 		// create the new index on the requested columns
-        int maxBucketSize = Integer.parseInt(prop.getProperty("MaximumKeysCountinIndexBucket"));
-        GridIndex gi = new GridIndex(mainDir, tableName, columnNames, maxBucketSize);
+		Hashtable<String, String> types = t.getHtblColNameType();
+		Hashtable<String, String> max = t.getHtblColNameMax();
+		int maxBucketSize = Integer.parseInt(prop.getProperty("MaximumKeysCountinIndexBucket"));
+        GridIndex gi = new GridIndex(mainDir, tableName, columnNames, maxBucketSize, types, max);
 
         // add the index to the table
         t.addIndex(gi);
@@ -113,7 +115,25 @@ public class DBApp implements DBAppInterface {
 		if (t == null)
 			throw new DBAppException("Table " + tableName + " not found!");
 
-		t.insert(colNameValue);
+		// [Row, page, position of the row in the page]
+		Vector<Object> rowPagePos = t.insert(colNameValue);
+
+//		Hashtable<String,String> htbl = t.getHtblColNameType();
+		t.insertIntoIndexes(rowPagePos);
+		// data to be taken after insertion in the table [michael] [done]
+		// 1. page address/name
+		// 2. row number of the newly inserted entry
+		// 3. Entry itself
+		// what will be inserted in the index?
+		// 1. indexed column values of the new entry
+		// 2. page address
+		// 3. row number
+
+		//insert in all indices, if any.
+		// 0. implement divisions upon creation [michael] [string and date unsolved]
+		// 1. find bucket to insert into [tifa, john]
+
+
 	}
 
 	@Override

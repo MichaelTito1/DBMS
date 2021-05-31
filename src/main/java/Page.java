@@ -88,4 +88,8 @@ public class Page implements Serializable{
 		numElements--;
 		save();
 	}
+
+	public String getPath() {
+		return path;
+	}
 }
