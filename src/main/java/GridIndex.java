@@ -1,9 +1,6 @@
 import java.io.*;
 import java.lang.reflect.Array;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Vector;
+import java.util.*;
 
 public class GridIndex implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -13,9 +10,13 @@ public class GridIndex implements Serializable {
     private String indexName;
     private int bucketCount = 0;
     private Object [] grid;
-    private Vector<String> indexedCols;
-//    private Vector<Bucket> buckets; // how to handle single/multidimensional indices ?! [done]
+    private Vector<String> indexedCols; // vector names of indexed columns
+    private Vector<String> colTypes;    // vector of datatypes of indexed columns
+    private Vector<String> colMax;      // vector of maximum size of each indexed column IN ORDER
+    // key = column name, Value: a vector of size 10, each element contains its upper boundary. It should respect column datatypes.
+    private Hashtable<String, Vector<Object>> htblRanges;
 
+    // how to handle single/multidimensional indices ?! [done]
     // how to handle range of each bucket ?! 2 cases: when table is empty or has entries [done]
     // how to name the index and the buckets? use tablename+colnames !! [done]
     //todo: Synchronize index with the table upon creation. Insert function needed!
@@ -31,19 +32,40 @@ public class GridIndex implements Serializable {
      * @param colNames
      * @throws DBAppException
      */
-    public GridIndex(String path, String tableName, String[] colNames, int maxRowsPerBucket) throws DBAppException {
+    public GridIndex(String path,
+                     String tableName,
+                     String[] colNames,
+                     int maxRowsPerBucket,
+                     Hashtable<String,String> htblColTypes,
+                     Hashtable<String,String> htblColMax) throws DBAppException {
         this.path = path;
         this.tableName = tableName;
         this.maxRowsPerBucket = maxRowsPerBucket;
+        this.colMax = new Vector<String>();
 
         // defining naming scheme of the index
         indexName = tableName;
-        for(String col : indexedCols)
+        for(String col : indexedCols) {
             indexName += "_" + col;
+            //students_id_age
+        }
 
         // copying column names
         indexedCols = new Vector<String>();
         Collections.addAll(indexedCols, colNames);
+
+        // copying column datatypes IN ORDER, then
+        // copying column maximum values IN ORDER
+        this.colTypes = new Vector<String>();
+        for(String col : indexedCols) {
+            colTypes.add(htblColTypes.get(col));
+            colMax.add(htblColMax.get(col));
+        }
+
+        // creating column range vectors
+        this.htblRanges = new Hashtable<String, Vector<Object>>();
+        for(String col : indexedCols)
+            htblRanges.put(col, new Vector<Object>(10));
 
         // dynamically creating a grid
         final int[] dimensions = new int[colNames.length];
@@ -55,6 +77,49 @@ public class GridIndex implements Serializable {
 
         // edit the metadata.csv file accordingly
         editMetadata(tableName, indexedCols);
+    }
+
+
+    /**
+     * This method initializes each column's divisions according to its datatype [integer, double, string, date]
+     */
+    private void createDivisions(){
+        int n = indexedCols.size();
+        for(int i = 0; i < n; i++){
+            String type = colTypes.get(i);
+            if(type.equals("Integer"))
+                integerDivisions(i);
+            else if(type.equals("Double"))
+                doubleDivisions(i);
+            else if(type.equals("String"))
+                stringDivisions();
+            else
+                dateDivisions(i);
+        }
+    }
+
+    /**
+     * This method initializes the divisions of a column whose type is integer
+     * @param i the position of the column in vector indexedCols
+     */
+    private void integerDivisions(int i){
+        String colName = indexedCols.get(i);             // column name
+        int delta = Integer.parseInt(colMax.get(i))/10; // delta is how big each unit of divisions is (maximumValue/10)
+        Vector<Object> range = htblRanges.get(colName); // vector that holds the ranges
+        for(int j = 0; j < 10; j++)
+            range.set(j, (j+1)*delta); // upper bound of this cell = (j+1)*(maximumValue/10)
+    }
+
+    private void doubleDivisions(int i){
+        String colName = indexedCols.get(i);             // column name
+        double delta = Double.parseDouble(colMax.get(i))/10.0; // delta is how big each unit of divisions is (maximumValue/10)
+        Vector<Object> range = htblRanges.get(colName); // vector that holds the ranges
+        for(int j = 0; j < 10; j++)
+            range.set(j, ((double)j+1.0) *delta); // upper bound of this cell = (j+1)*(maximumValue/10)
+    }
+
+    private void stringDivisions(int i){
+
     }
 
     /**
@@ -116,6 +181,12 @@ public class GridIndex implements Serializable {
         return b;
     }
 
+    /**
+     * It saves the grid index in the following naming scheme
+     * [tableName]_[indexed col1]_[indexed col2].class
+     * There may be one or more columns
+     * @throws DBAppException
+     */
     public void save() throws DBAppException {
         File f = new File(path+"\\"+indexName+".class");
 
@@ -133,6 +204,23 @@ public class GridIndex implements Serializable {
         } catch (IOException e) {
             throw new DBAppException(e.getMessage());
         }
+    }
+
+    public boolean checkBucketAvailable (Vector<Object> rowPagePos ,Vector<String> indexedCols ){
+
+        /*if(bucketCount == 0) {
+            // create new bucket
+        }
+        String x = tableName + "" + indexedCols;
+        while(bucketCount != 0) {
+            if (x.equals(indexName))
+                return true;
+
+        }
+        for(int i = 0; i < bucketCount ; i++){
+
+        }*/
+
     }
 
     /**

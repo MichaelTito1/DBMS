@@ -82,7 +82,56 @@ public class Bucket implements Serializable {
             throw new DBAppException(e.getMessage());
         }
     }
-    //todo: 1. Create bucket
-    //todo: 2. save bucket
-    //todo: 3. bucket + page ?!!
+
+    /**
+     * this method inserts [page address, position of the row in its page, indexed columns' values from the row] in the bucket
+     * @param rowPagePos
+     * @param htbl
+     */
+    public void insert(Vector<Object> rowPagePos, Hashtable<String, String> htbl) throws DBAppException {
+        // if this bucket is full, insert in the overflow bucket the new row [the easy answer] [recheck piazza @583]
+        if(size >= maxRows){
+            // if bucket is already created, insert directly
+            if(nextBucket != null)
+                nextBucket.insert(rowPagePos,htbl);
+            else {
+                // else if it doesn't exist, create it then insert.
+                nextBucket = gi.createBucket(min, max);
+                nextBucket.insert(rowPagePos, htbl);
+            }
+        }
+
+        //if this bucket is not full, we need to insert the row in the proper position
+        Row r = (Row) rowPagePos.get(0);
+        Page p = (Page) rowPagePos.get(1);
+        int pos = (int) rowPagePos.get(2);
+
+        Vector<Object> filteredCols = filterIndexedCols(htbl, r); // get indexed columns' values only
+        String pageAddress = p.getPath();
+
+        Hashtable<Integer, Vector<Object> > pageContents = rowAddress.get(pageAddress);
+        //if this page is NOT new to the bucket, insert directly
+        // else if this page is new, initialize its hashtable then insert
+        if(pageContents == null)
+            pageContents = new Hashtable<Integer, Vector<Object>>();
+        pageContents.put(pos, filteredCols);
+    }
+
+    /** Bucket : indexedCols, rowAddress
+     *  Table: ay hashtable [3shan n3rf tarteeb el cols fel row]
+     *  Row: array of objects
+     *
+     *  // takes a row, puts all indexed cols' values in a vector IN ORDER, returns this vector
+     */
+    private Vector<Object> filterIndexedCols(Hashtable<String, String> htbl, Row r){
+        Vector<Object> result = new Vector<Object>();
+        int i = 0;
+        for(Entry<String, String> entry : htbl.entrySet()){
+            String key = entry.getKey();
+            if(indexedCols.contains(key))
+                result.add(r.getValue(i));
+            i++;
+        }
+        return result;
+    }
 }
