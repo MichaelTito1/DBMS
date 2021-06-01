@@ -10,6 +10,7 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Hashtable;
 import java.util.Map.Entry;
@@ -24,6 +25,7 @@ public class Table implements Serializable{
 	private int it = -1; //Iterator on pages
 	private Hashtable<String, Integer> colOrder = new Hashtable<String, Integer>();
 	private Vector<String> pageNames;
+	private int pkPos;
 
 	private Vector<GridIndex> index; // a vector of all indices created on this table
 	// SHOULD WE KEEP AN ARRAY OF PAGES (SIMILAR TO WHAT WE DID WITH PAGES AND Rows) ??!!!! NO
@@ -59,6 +61,9 @@ public class Table implements Serializable{
 		// Setting column order.. each column and its corresponding order in a
 		// hashtable. This is useful going forward in insertion.
 		initializeColOrder();
+
+		//initializing pk position
+		pkPos = colOrder.get(primaryKey);
 		
 		// Saving the table in its directory
 		save();
@@ -66,6 +71,10 @@ public class Table implements Serializable{
 	
 	public int getIt() {
 		return it;
+	}
+
+	public int getPkPos() {
+		return pkPos;
 	}
 
 	public Vector<String> getPageNames() {
@@ -581,7 +590,13 @@ public class Table implements Serializable{
 	// construct the new row to prepare it for insertion in the page.
 	private Row makeNewRow(Hashtable<String, Object> htblColNameValue){
 		int numCols = htblColNameMin.size();
-		Row r = new Row(numCols);
+
+		// getting column names of the table, and storing it in the row for gridIndex purposes.
+		Vector<String> colNames = new Vector<String>();
+		Collections.addAll(colNames, (String[]) htblColNameValue.keySet().toArray());
+
+		Row r = new Row(numCols, colNames);
+
 		for(Entry<String, Object> entry : htblColNameValue.entrySet()){
 			String key = entry.getKey();
 			Object val = entry.getValue();
@@ -828,6 +843,9 @@ public class Table implements Serializable{
 			}
 		}
 		this.save();
+
+		// delete from indexes
+
 		return found;
 	}
 
@@ -907,9 +925,23 @@ public class Table implements Serializable{
 	 * this method inserts the given row in all indexes created in this table.
 	 * @param rowPagePos a vector that contains [row to be inserted, page that contains the row, position of row in its page]
 	 */
-	public void insertIntoIndexes(Vector<Object> rowPagePos) {
-		for(GridIndex gi : index){
+	public void insertIntoIndexes(Vector<Object> rowPagePos) throws DBAppException {
+		for(GridIndex gi : index) {
 			gi.insert(rowPagePos, htblColNameType);
+		}
+	}
+
+	public Hashtable<String, String> getHtblColNameMin() {
+		return htblColNameMin;
+	}
+
+	/**
+	 * Deletes the rows that meet all the given conditions from the indexes.
+	 * @param htblColNameValue key:column name, Value: column value
+	 */
+	public void deleteFromIndexes(Hashtable<String, Object> htblColNameValue){
+		for(GridIndex gi : index){
+			gi.delete();
 		}
 	}
 }

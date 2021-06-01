@@ -8,7 +8,7 @@ public class Bucket implements Serializable {
     private static final long serialVersionUID = 1L;
     private int maxRows;
     // attributes needed to locate a row
-    private Hashtable<String, Hashtable<Integer, Vector<Object>> > rowAddress; // hashtable contains page address and row number(s), relevant column values of each row
+    private Hashtable<Object, Vector<Object> > rowAddress; // key: primary key of each row , value(s): indexed column value(s) of this row
     private Vector<String> indexedCols;
     private int size = 0;
     private Vector<Object> min;
@@ -16,6 +16,7 @@ public class Bucket implements Serializable {
     private String path;
     private Bucket nextBucket = null; // overflow bucket
     private GridIndex gi;
+
     /**
      * Constructor initializes the bucket attributes and saves it on disk
      * @param path path of saving this bucket
@@ -25,7 +26,7 @@ public class Bucket implements Serializable {
      */
     public Bucket(String path, int maxRows, Vector<String> indexedCols, GridIndex gi) throws DBAppException {
         this.maxRows = maxRows;
-        rowAddress = new Hashtable<String, Hashtable<Integer, Vector<Object>>>();
+        rowAddress = new Hashtable<Object, Vector<Object>>();
         this.path = path;
         this.indexedCols = indexedCols;
         this.gi = gi;
@@ -60,7 +61,7 @@ public class Bucket implements Serializable {
         return maxRows;
     }
 
-    public Hashtable<String, Hashtable<Integer, Vector<Object>>> getRowAddress() {
+    public Hashtable<Object, Vector<Object>> getRowAddress() {
         return rowAddress;
     }
 
@@ -85,36 +86,29 @@ public class Bucket implements Serializable {
 
     /**
      * this method inserts [page address, position of the row in its page, indexed columns' values from the row] in the bucket
-     * @param rowPagePos
+     * @param row
      * @param htbl
+     * @param pkPos
      */
-    public void insert(Vector<Object> rowPagePos, Hashtable<String, String> htbl) throws DBAppException {
+    public void insert(Row row, Hashtable<String, String> htbl, int pkPos) throws DBAppException {
         // if this bucket is full, insert in the overflow bucket the new row [the easy answer] [recheck piazza @583]
         if(size >= maxRows){
             // if bucket is already created, insert directly
             if(nextBucket != null)
-                nextBucket.insert(rowPagePos,htbl);
+                nextBucket.insert(row,htbl,pkPos);
             else {
                 // else if it doesn't exist, create it then insert.
                 nextBucket = gi.createBucket(min, max);
-                nextBucket.insert(rowPagePos, htbl);
+                nextBucket.insert(row, htbl,pkPos);
             }
         }
 
-        //if this bucket is not full, we need to insert the row in the proper position
-        Row r = (Row) rowPagePos.get(0);
-        Page p = (Page) rowPagePos.get(1);
-        int pos = (int) rowPagePos.get(2);
-
-        Vector<Object> filteredCols = filterIndexedCols(htbl, r); // get indexed columns' values only
-        String pageAddress = p.getPath();
-
-        Hashtable<Integer, Vector<Object> > pageContents = rowAddress.get(pageAddress);
-        //if this page is NOT new to the bucket, insert directly
+        Vector<Object> filteredCols = filterIndexedCols(htbl, row); // get indexed columns' values only
+        Object pkVal = row.getValue(pkPos);
+        rowAddress.put(pkVal,filteredCols);
+        // [OLD] if this page is NOT new to the bucket, insert directly
         // else if this page is new, initialize its hashtable then insert
-        if(pageContents == null)
-            pageContents = new Hashtable<Integer, Vector<Object>>();
-        pageContents.put(pos, filteredCols);
+        save();
     }
 
     /** Bucket : indexedCols, rowAddress
@@ -133,5 +127,20 @@ public class Bucket implements Serializable {
             i++;
         }
         return result;
+    }
+
+    /**
+     * given a primary key of the value to be deleted, this method deletes it from the bucket.
+     * If not found in this bucket, it should call its overflow bucket's delete method
+     * @param pk
+     * @return deleted object if deleted, null if deletion failed for whatever reason.
+     */
+    public Vector<Object> delete(Object pk) throws DBAppException {
+        Vector<Object> deleted = rowAddress.remove(pk); // attempt deletion
+        if(deleted == null){ // if not found, delete it from the overflow bucket.
+            deleted = nextBucket.delete(pk);
+        }
+        save();
+        return deleted;
     }
 }

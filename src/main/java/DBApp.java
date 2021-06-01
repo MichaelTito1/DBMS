@@ -97,9 +97,11 @@ public class DBApp implements DBAppInterface {
 
 		// create the new index on the requested columns
 		Hashtable<String, String> types = t.getHtblColNameType();
+		Hashtable<String, String> min = t.getHtblColNameMin();
 		Hashtable<String, String> max = t.getHtblColNameMax();
 		int maxBucketSize = Integer.parseInt(prop.getProperty("MaximumKeysCountinIndexBucket"));
-        GridIndex gi = new GridIndex(mainDir, tableName, columnNames, maxBucketSize, types, max);
+		int pkPos = t.getPkPos();
+        GridIndex gi = new GridIndex(mainDir, tableName, columnNames, maxBucketSize, types, min, max, pkPos);
 
         // add the index to the table
         t.addIndex(gi);
@@ -158,12 +160,14 @@ public class DBApp implements DBAppInterface {
 
 		boolean done = t.delete(columnNameValue);
 		if (done) {
-			System.out.println("Delete query successful.");
+			System.out.println("Delete from table successful.");
 		} else {
 			//throw new DBAppException("Deletion failed. Rows satisfying all query conditions were not found.");
-			System.out.println("Deletion failed. Rows satisfying all query conditions were not found.");
+			System.out.println("Deletion from table failed. Rows satisfying all query conditions were not found.");
 		}
 
+		// delete the same rows from all indexes
+		t.deleteFromIndexes();
 	}
 
 	@Override
