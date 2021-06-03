@@ -1,5 +1,4 @@
 import java.io.*;
-import java.lang.reflect.Array;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -11,8 +10,8 @@ public class GridIndex implements Serializable {
     private String tableName;
     private String indexName;
     private int bucketCount = 0;
-    private Object [] grid;
-    private Vector<String> indexedCols; // vector names of indexed columns [id, age]
+    private Vector<Bucket> grid;
+    private Vector<String> indexedCols; // vector names of indexed columns
     private Vector<String> colTypes;    // vector of datatypes of indexed columns
     private Vector<Object> colMin;      // vector of minimum size of each indexed column IN ORDER
     private Vector<Object> colMax;      // vector of maximum size of each indexed column IN ORDER
@@ -20,11 +19,8 @@ public class GridIndex implements Serializable {
     private Hashtable<String, Vector<Object>> htblRanges;
     private boolean pkIndexed = false;  // a flag to indicate if this index is created on the primary key
     private int pkPos;
+    private Table parentTable;
 
-    // how to handle single/multidimensional indices ?! [done]
-    // how to handle range of each bucket ?! 2 cases: when table is empty or has entries [done]
-    // how to name the index and the buckets? use tablename+colnames !! [done]
-    //todo: Synchronize index with the table upon creation. Insert function needed!
     /**
      * Constructor:
      * 1. assigns index path, max row capacity of each bucket and indexed columns
@@ -37,7 +33,8 @@ public class GridIndex implements Serializable {
      * @param colNames
      * @throws DBAppException
      */
-    public GridIndex(String path,
+    public GridIndex(Table t,
+                     String path,
                      String tableName,
                      String[] colNames,
                      int maxRowsPerBucket,
@@ -45,6 +42,7 @@ public class GridIndex implements Serializable {
                      Hashtable<String, String> htblColMin,
                      Hashtable<String,String> htblColMax,
                      int pkPos) throws DBAppException {
+        this.parentTable = t;
         this.path = path;
         this.tableName = tableName;
         this.maxRowsPerBucket = maxRowsPerBucket;
@@ -77,14 +75,15 @@ public class GridIndex implements Serializable {
         // creating column range vectors
         this.htblRanges = new Hashtable<String, Vector<Object>>();
         for(String col : indexedCols)
-            htblRanges.put(col, new Vector<Object>(10));
+            htblRanges.put(col, new Vector<Object>(11));
 
         // dynamically creating a grid
-        final int[] dimensions = new int[colNames.length];
-        Arrays.fill(dimensions, 10);
-        grid = (Object[]) Array.newInstance(Object.class, dimensions);
+//        final int[] dimensions = new int[colNames.length];
+//        Arrays.fill(dimensions, 10);
+//        grid = (Object[]) Array.newInstance(Object.class, dimensions);
+        this.grid = new Vector<Bucket>((int)Math.pow(11, colNames.length));
 
-        // divide each dimension into 10 divisions
+        // divide each dimension into 11 divisions
         createDivisions();
 
         // edit the metadata.csv file accordingly
@@ -124,6 +123,43 @@ public class GridIndex implements Serializable {
     }
 
     /**
+     * Takes n-coordinates and converts them to a single number
+     * corresponding to the position in the 1D grid.
+     * @param coordinates
+     * @return
+     */
+    private int toPosition(Vector<Integer> coordinates){
+        int ans = 0;
+        int n = coordinates.size();
+        for(int i = 0; i < n; i ++){
+            int dim = coordinates.get(i);
+            ans += dim * Math.pow(11, i);
+        }
+        return ans;
+    }
+
+    /**
+     * This method takes a single number and converts it to the corresponding
+     * coordinates with the suitable number of dimensions.
+     * @param pos
+     * @return
+     */
+    private Vector<Integer> toCoordinates(int pos){
+        Vector<Integer> ans = new Vector<Integer>();
+        int x = (pos%11);
+        ans.add(x);
+        int newPos = pos - x;
+        int power = 1;
+        while(newPos > 0){
+            int newDim =  ( newPos/(int)Math.pow(11, power) ) % 11;
+            newPos -= newDim*Math.pow(11, power);
+            power++;
+            ans.add(newDim);
+        }
+        return ans;
+    }
+
+    /**
      * this method converts a string to date format "yyyy-MM-dd"
      * @param x string to be converted
      * @return
@@ -152,7 +188,7 @@ public class GridIndex implements Serializable {
             else if(type.equals("Double"))
                 doubleDivisions(i);
             else if(type.equals("String"))
-                stringDivisions();
+                stringDivisions(i);
             else
                 dateDivisions(i);
         }
@@ -164,22 +200,56 @@ public class GridIndex implements Serializable {
      */
     private void integerDivisions(int i){
         String colName = indexedCols.get(i);             // column name
-        int delta = Integer.parseInt(colMax.get(i))/10; // delta is how big each unit of divisions is (maximumValue/10)
+        int delta = Integer.parseInt( (String) colMax.get(i))/10; // delta is how big each unit of divisions is (maximumValue/10)
         Vector<Object> range = htblRanges.get(colName); // vector that holds the ranges
         for(int j = 0; j < 10; j++)
             range.set(j, (j+1)*delta); // upper bound of this cell = (j+1)*(maximumValue/10)
+        range.set(10, null);
     }
 
     private void doubleDivisions(int i){
         String colName = indexedCols.get(i);             // column name
-        double delta = Double.parseDouble(colMax.get(i))/10.0; // delta is how big each unit of divisions is (maximumValue/10)
+        double delta = Double.parseDouble( (String) colMax.get(i))/10.0; // delta is how big each unit of divisions is (maximumValue/10)
         Vector<Object> range = htblRanges.get(colName); // vector that holds the ranges
         for(int j = 0; j < 10; j++)
             range.set(j, ((double)j+1.0) *delta); // upper bound of this cell = (j+1)*(maximumValue/10)
+        range.set(10, null);
     }
 
+    /**
+     * This method divides string into ranges according to their length
+     * @param i index of the column
+     */
     private void stringDivisions(int i){
+        String colName = indexedCols.get(i);
+        String mini = (String) colMin.get(i);
+        String maxi = (String) colMax.get(i);
 
+        int minLen = mini.length();
+        int maxLen = maxi.length();
+
+        int delta = (int) Math.ceil((maxLen-minLen)/10);
+        Vector<Object> range = htblRanges.get(colName);
+        for(int j = 0; j < 10; j++)
+            range.set(j, (j+1)*delta);
+        range.set(10,null);
+    }
+
+    /**
+     * divides date into ranges according to the difference between max
+     * and min dates in milliseconds.
+     * @param i
+     */
+    private void dateDivisions(int i) {
+        String colName = indexedCols.get(i);             // column name
+        Vector<Object> range = htblRanges.get(colName); // vector that holds the ranges
+
+        Date mini = (Date) colMin.get(i);
+        Date maxi = (Date) colMax.get(i);
+        Long delta = (maxi.getTime() - mini.getTime())/10; // get difference between max and min in milliseconds
+        for(int j = 0; j < 10; j++)
+            range.set(j, (j+1)*delta); // upper bound of this cell = (j+1)*(maximumValue/10)
+        range.set(10, null);
     }
 
     /**
@@ -266,23 +336,6 @@ public class GridIndex implements Serializable {
         }
     }
 
-    public boolean checkBucketAvailable (Vector<Object> rowPagePos ,Vector<String> indexedCols ){
-
-        /*if(bucketCount == 0) {
-            // create new bucket
-        }
-        String x = tableName + "" + indexedCols;
-        while(bucketCount != 0) {
-            if (x.equals(indexName))
-                return true;
-
-        }
-        for(int i = 0; i < bucketCount ; i++){
-
-        }*/
-
-    }
-
     /**
      * This method is used to insert the row in the correct position in the index
      * @param rowPagePos
@@ -292,13 +345,13 @@ public class GridIndex implements Serializable {
         Row r = (Row) rowPagePos.get(0);
         Vector<Integer> filtered = filterIndexedCols(htbl, r);
         Vector<Integer> gridPos = new Vector<Integer>();
-
+        Vector<Object> relevantCols = new Vector<Object>();
         for(Integer pos : filtered){
             String colName = r.getColNames().get(pos);
             Vector<Object> range = htblRanges.get(colName); // max age 30 : [3,6,9,12,...,30] insert 9
             int n = range.size();
             Object colVal = r.getValue(pos);
-
+            relevantCols.add(colVal);
             for(int i = 0; i < n; i++){
                 Object div = range.get(i);
                 int res = compareObjects(div, colVal);
@@ -311,62 +364,61 @@ public class GridIndex implements Serializable {
             }
         }
 
-        // narrowing down on dimensions until we reach the last dimension which will give
-        // us the bucket in which we should insert
-        int n = gridPos.size();
-        Object[] x = (Object[]) grid[gridPos.get(0)];
-        for(int i = 1; i < n-1; i++)
-            x = (Object[]) x[gridPos.get(i)];
-        Bucket targetBucket = (Bucket) x[gridPos.get(n-1)];
-        if(targetBucket == null)
-            targetBucket = createBucket(colMin, colMax);
-        targetBucket.insert(r, htbl, pkPos);
+        // create the reference, then calculate its final position in the grid vector.
+        Reference ref = new Reference( ((Page)rowPagePos.get(1)).getPath(), r.getValue(pkPos), relevantCols);
+        int finalPos = toPosition(gridPos);
 
+        // If grid cell is empty, create new bucket. Else, insert in the existing bucket
+        if(grid.get(finalPos) == null) {
+            Bucket b = createBucket(colMin,colMax);
+            grid.set(finalPos,b);
+        }
+        ( (Bucket)grid.get(finalPos)).insert(ref);
         save();
     }
 
     /**
      * This gets the target cell on which we should do an operation [insert/update/delete/select]
      * @param r
-     * @param filtered
+     * @param
      * @return
      * @throws DBAppException
      */
-    private Bucket getTargetCell(Row r, Vector<Integer> filtered,) throws DBAppException {
-        Vector<Integer> gridPos = new Vector<Integer>();
+//    private Bucket getTargetCell(Row r, Vector<Integer> filtered,) throws DBAppException {
+//        Vector<Integer> gridPos = new Vector<Integer>();
+//
+//        for(Integer pos : filtered){
+//            String colName = r.getColNames().get(pos);
+//            Vector<Object> range = htblRanges.get(colName); // max age 30 : [3,6,9,12,...,30] insert 9
+//            int n = range.size();
+//            Object colVal = r.getValue(pos);
+//
+//            for(int i = 0; i < n; i++){
+//                Object div = range.get(i);
+//                int res = compareObjects(div, colVal);
+//                if(res > 0){
+//                    // if division upper boundary is greater than the column value, save division's
+//                    // position and exit the loop.
+//                    gridPos.add(i);
+//                    break;
+//                }
+//            }
+//        }
+//
+//        // narrowing down on dimensions until we reach the last dimension which will give
+//        // us the bucket in which we should insert
+//        int n = gridPos.size();
+//        Object[] x = (Object[]) grid[gridPos.get(0)];
+//        for(int i = 1; i < n-1; i++)
+//            x = (Object[]) x[gridPos.get(i)];
+//
+//        Bucket targetBucket = (Bucket) x[gridPos.get(n-1)];
+//        if(targetBucket == null)
+//            targetBucket = createBucket(colMin, colMax);
+//        return targetBucket;
+//    }
 
-        for(Integer pos : filtered){
-            String colName = r.getColNames().get(pos);
-            Vector<Object> range = htblRanges.get(colName); // max age 30 : [3,6,9,12,...,30] insert 9
-            int n = range.size();
-            Object colVal = r.getValue(pos);
-
-            for(int i = 0; i < n; i++){
-                Object div = range.get(i);
-                int res = compareObjects(div, colVal);
-                if(res > 0){
-                    // if division upper boundary is greater than the column value, save division's
-                    // position and exit the loop.
-                    gridPos.add(i);
-                    break;
-                }
-            }
-        }
-
-        // narrowing down on dimensions until we reach the last dimension which will give
-        // us the bucket in which we should insert
-        int n = gridPos.size();
-        Object[] x = (Object[]) grid[gridPos.get(0)];
-        for(int i = 1; i < n-1; i++)
-            x = (Object[]) x[gridPos.get(i)];
-
-        Bucket targetBucket = (Bucket) x[gridPos.get(n-1)];
-        if(targetBucket == null)
-            targetBucket = createBucket(colMin, colMax);
-        return targetBucket;
-    }
-
-    private Vector<Integer> filterIndexedCols(Hashtable<String, String> htbl, Row r){
+    public Vector<Integer> filterIndexedCols(Hashtable<String, String> htbl, Row r){
         Vector<Integer> result = new Vector<Integer>();
         int i = 0;
         for(Map.Entry<String, String> entry : htbl.entrySet()){
@@ -379,7 +431,7 @@ public class GridIndex implements Serializable {
         return result;
     }
 
-    // compares two rows according to their primary keys
+    // compares two objects according to their datatypes
     private int compareObjects(Object obj1, Object obj2) throws DBAppException{
 
         if( (obj1 instanceof java.lang.Integer) && (obj2 instanceof java.lang.Integer) ) {
@@ -435,30 +487,53 @@ public class GridIndex implements Serializable {
     }
 
     /**
-     * This performs delete function on a given row
+     * This performs SHALLOW delete on a given row USING BRUTE FORCE. it is deleted only from the index.
      */
-    public void delete(Hashtable<String, Object> htblColNameValue){
-        // 1. find the list of common columns
-        Set<String> htblCols = htblColNameValue.keySet();
-        Vector<String> commonCols = new Vector<String>();
-        for(String key : indexedCols){
-            if(htblCols.contains(key))
-                commonCols.add(key);
+    public boolean delete(Hashtable<String, Object> columnNameValue) throws DBAppException {
+        boolean done = true;
+        //for each bucket and its overflow:
+        // find satisfying references and delete their rows then delete the references
+        for(Bucket b : grid){
+            Vector<Reference> refs = b.getReferences();
+            boolean satisfies = false;
+            for(Reference ref : refs){
+                satisfies = checkReference(ref, columnNameValue);
+                if(satisfies){
+                    // delete from bucket
+                    done = done && b.deleteReference(refs.indexOf(ref));
+                }
+            }
+            // if no reference in this bucket satisfied the conditions, check its overflow bucket.
+            if(!satisfies)
+                done = done && shallowDeleteFromOverflow(b.getNextBucket(), columnNameValue);
         }
+        return done;
+    }
 
-        int n = commonCols.size();
-
-        if(n == 0){ // CASE UNKNOWN ?!!?!?!?!?!
-
-        }
-        else{
-            // loop fel commonCols to find the approp. division for each col
-            for(int i = 0; i < n; i++){
-                String key = commonCols.get(i);
-
+    /**
+     * given a bucket, try to deep delete a reference. If it fails, execute on the next bucket recursively
+     * @param b
+     * @param columnNameValue
+     * @return
+     */
+    private boolean shallowDeleteFromOverflow(Bucket b, Hashtable<String, Object> columnNameValue) throws DBAppException {
+        if(b == null)
+            return false;
+        boolean done = true;
+        Vector<Reference> refs = b.getReferences();
+        boolean satisfies = false;
+        for(Reference ref : refs){
+            satisfies = checkReference(ref, columnNameValue);
+            if(satisfies){
+                // delete from bucket
+                done = done && b.deleteReference(refs.indexOf(ref));
             }
         }
+        if(!satisfies) // if reference is not found here, search in the next overflow.
+            done = done && shallowDeleteFromOverflow(b.getNextBucket(), columnNameValue);
+        return done;
     }
+
     public void updateUsingIndex(String pkvalue, Hashtable<String,Object> htblupdate ,Vector<String> indexedCols){
         //update(pkvalue,htblupdate);
 
@@ -479,8 +554,110 @@ public class GridIndex implements Serializable {
 
         }
     }
-}
 
+    public String getPath() {
+        return path;
+    }
+
+    public Vector<String> getIndexedCols() {
+        return indexedCols;
+    }
+
+    /**
+     * this method deletes the rows satisfying the given conditions from both
+     * the table and the index, hence the name deepDelete.
+     * @param columnNameValue
+     * @param indexedCols
+     * @return
+     */
+    public boolean deepDelete(Hashtable<String, Object> columnNameValue, Vector<String> indexedCols) throws DBAppException {
+        boolean done = true;
+        // 1. todo : locate buckets satisfying the conditions
+        Vector<Bucket> buckets = ;
+        // 2. : for each bucket and its overflow:
+        // 2a. : find satisfying references and delete their rows then delete the references
+        for(Bucket b : buckets){
+            Vector<Reference> refs = b.getReferences();
+            boolean satisfies = false;
+            for(Reference ref : refs){
+                satisfies = checkReference(ref, columnNameValue);
+                if(satisfies){
+                    // delete from table
+                    parentTable.deleteRow(ref.getPageAddress(), ref.getPrimaryKey());
+                    // delete from bucket
+                    done = done && b.deleteReference(refs.indexOf(ref));
+                }
+            }
+            // if no reference in this bucket satisfied the conditions, check its overflow bucket.
+            if(!satisfies)
+                done = done && deepDeleteFromOverflow(b.getNextBucket(), columnNameValue);
+        }
+        return done;
+    }
+
+    /**
+     * given a bucket, try to deep delete a reference. If it fails, execute on the next bucket recursively
+     * @param b
+     * @param columnNameValue
+     */
+    private boolean deepDeleteFromOverflow(Bucket b, Hashtable<String, Object> columnNameValue) throws DBAppException {
+        if(b == null)
+            return false;
+        boolean done = true;
+        Vector<Reference> refs = b.getReferences();
+        boolean satisfies = false;
+        for(Reference ref : refs){
+            satisfies = checkReference(ref, columnNameValue);
+            if(satisfies){
+                // delete from table
+                parentTable.deleteRow(ref.getPageAddress(), ref.getPrimaryKey());
+                // delete from bucket
+                done = done && b.deleteReference(refs.indexOf(ref));
+            }
+        }
+        if(!satisfies) // if reference is not found here, search in the next overflow.
+            done = done && deepDeleteFromOverflow(b.getNextBucket(), columnNameValue);
+        return done;
+    }
+
+    /**
+     * checks if a reference satisfies conditions in the hashtable.
+     * @param ref
+     * @param columnNameValue
+     * @return
+     */
+    private boolean checkReference(Reference ref, Hashtable<String, Object> columnNameValue) throws DBAppException {
+        // get row from the table using primary key
+        int pagePos = parentTable.getPageNames().indexOf(ref.getPageAddress());
+        Page p = parentTable.getPage(pagePos); // load page
+        // get row position in the page, then get row itself
+        int rowPos = parentTable.binarySearch(p.getRow(), ref.getPrimaryKey().toString());
+        Row r = p.getRow(rowPos);
+
+        // check if conditions are met, then delete.
+        for(Map.Entry<String, Object> entry : columnNameValue.entrySet()){
+            int x = r.getColNames().indexOf(entry.getKey());
+            int comp = compareObjects(r.getValue(x), entry.getValue());
+            if(comp != 0) // if any condition is not satisfied, reject the row.
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * deletes given rows using brute force. this method is used only when
+     * @param toBeDeleted
+     */
+    public void deleteBruteForce(Vector<Row> toBeDeleted) throws DBAppException {
+
+        for(Row del : toBeDeleted) {
+            Object delPk = del.getValue(pkPos);
+            for (Bucket b : grid) {
+                b.deleteRow(delPk);
+            }
+        }
+    }
+}
 
 /* INSERT PSEUDOCODE
  assume eno indexed columns contain the dimensions in the same order

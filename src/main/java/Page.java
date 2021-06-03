@@ -70,23 +70,12 @@ public class Page implements Serializable{
 		numElements++;
 		save();
 	}
-	
-//	public void addRow(Row input, int idx) throws FileNotFoundException, IOException{
-//		row.set(idx, input);
-//		numElements++;
-//		save();
-//	}
-	
-	// Replaces a row in a given index
-//	public void insertRow(Row r, int idx) throws DBAppException {
-//		row.set(idx, r);
-//		save();
-//	}
 
-	public void deleteRow(int j) throws DBAppException {
-		row.remove(j);
+	public Row deleteRow(int j) throws DBAppException {
+		Row del = row.remove(j);
 		numElements--;
 		save();
+		return del;
 	}
 
 	public String getPath() {

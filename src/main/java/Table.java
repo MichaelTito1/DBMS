@@ -10,11 +10,8 @@ import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Collections;
-import java.util.Date;
-import java.util.Hashtable;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Vector;
 
 public class Table implements Serializable{
 	
@@ -133,7 +130,7 @@ public class Table implements Serializable{
 		Page p;
 		int x = it+1;
 		p = new Page(maxPageSize, path+tableName+"_"+"page"+x+".class");
-		pageNames.add(x, tableName+"_"+"page"+x+".class");
+		pageNames.add(x, path+tableName+"_"+"page"+x+".class");
 		it++;
 		save();
 		return p;
@@ -223,7 +220,7 @@ public class Table implements Serializable{
 			}
 			// YOU NEED TO SEE WHICH ROW IS BIGGER !!!!!!
 			Row r1 = curPage.getRow(pos.get(1));
-			int res = compareObjects(r, r1);
+			int res = compareRows(r, r1);
 			if(res < 0) {
 				curPage.addRow(r, pos.get(1));    // since we already compared pk values, insert directly
 				rowPagePos.add(curPage);
@@ -247,7 +244,7 @@ public class Table implements Serializable{
 				// YOU NEED TO SEE WHICH ROW IS BIGGER !!!!!!
 				//Row r1 is the row at position of insertion
 				Row r1 = curPage.getRow(pos.get(1));
-				int res = compareObjects(r, r1);
+				int res = compareRows(r, r1);
 				rowPagePos.add(curPage);
 				if(res < 0) {
 					curPage.addRow(r, pos.get(1));
@@ -270,7 +267,7 @@ public class Table implements Serializable{
 					rowPagePos.add(nextPage);
 					if(pos.get(1) == lastRowIdx){
 						Row r1 = curPage.getRow(pos.get(1));
-						int res = compareObjects(r, r1);
+						int res = compareRows(r, r1);
 						if(res < 0){
 							nextPage.addRow(r1,0);
 							curPage.deleteRow(lastRowIdx);
@@ -292,7 +289,7 @@ public class Table implements Serializable{
 					
 					// YOU NEED TO SEE WHICH ROW IS BIGGER !!!!!!
 					Row r1 = curPage.getRow(pos.get(1));
-					int res = compareObjects(r, r1);
+					int res = compareRows(r, r1);
 					if(res < 0) {
 						curPage.addRow(r, pos.get(1));
 						rowPagePos.add(pos.get(1));
@@ -308,7 +305,7 @@ public class Table implements Serializable{
 					Page newPage = createPage(pos.get(0)+1);
 					if(pos.get(1) == lastRowIdx){
 						Row r1 = curPage.getRow(pos.get(1));
-						int res = compareObjects(r, r1);
+						int res = compareRows(r, r1);
 						if(res < 0){
 							newPage.addRow(r1,0);
 							curPage.deleteRow(lastRowIdx);
@@ -332,7 +329,7 @@ public class Table implements Serializable{
 					curPage.deleteRow(lastRowIdx);
 					
 					Row r1 = curPage.getRow(pos.get(1));
-					int res = compareObjects(r, r1);
+					int res = compareRows(r, r1);
 					rowPagePos.add(curPage);
 					if(res < 0) {
 						curPage.addRow(r, pos.get(1));
@@ -378,7 +375,7 @@ public class Table implements Serializable{
 	}
 
 	// compares two rows according to their primary keys
-	private int compareObjects(Object r1, Object r2) throws DBAppException{
+	private int compareRows(Object r1, Object r2) throws DBAppException{
 		int pkidx = colOrder.get(primaryKey);
 		Object obj1 = ((Row) r1).getValue(pkidx);
 		Object obj2 = ((Row) r2).getValue(pkidx);
@@ -428,7 +425,7 @@ public class Table implements Serializable{
 	
 	// determining type of the primary key, then
 	// doing binary search on primary key of type String
-	private int binarySearch(Vector<Row> rows, String searchVal) throws DBAppException{
+	int binarySearch(Vector<Row> rows, String searchVal) throws DBAppException{
 		readColConstraints();
 		//getting column index of the primary key
 		int pkIdx = colOrder.get(primaryKey);
@@ -704,7 +701,7 @@ public class Table implements Serializable{
 			if(pos == -1 || pos >= p.getRow().size())
 				continue;
 			Row r2 = p.getRow(pos);
-			int x = compareObjects(r1,r2);
+			int x = compareRows(r1,r2);
 			if(x==0)
 				return true;
 		}
@@ -802,14 +799,15 @@ public class Table implements Serializable{
 	 * and searches for rows satisfying all conditions then deletes them.
 	 * If any row is found with those conditions, it returns true, else false.
 	 */
-	public boolean delete(Hashtable<String, Object> columnNameValue) throws DBAppException{
+	public Vector<Row> delete(Hashtable<String, Object> columnNameValue) throws DBAppException{
 		
 		boolean found = false; // result of deletion
-		
+		Vector<Row> del = new Vector<Row>();
+
 		//If the conditions include a primary key, we will search for this row using 
 		//binary search in a separate method.
 		if(columnNameValue.containsKey(primaryKey))
-			found = deleteWithPk(columnNameValue);
+			del = deleteWithPk(columnNameValue);
 		//Else, we will load each page and search linearly for the
 		//rows satisfying the conditions
 		else{
@@ -833,7 +831,7 @@ public class Table implements Serializable{
 					}
 					// if row satisfies conditions, delete it.
 					if(satisfies){
-						curPage.deleteRow(j);
+						del.add(curPage.deleteRow(j));
 						found = true;
 					}
 				}
@@ -843,18 +841,16 @@ public class Table implements Serializable{
 			}
 		}
 		this.save();
-
-		// delete from indexes
-
-		return found;
+		return del;
 	}
 
 	/**
 	 *	This method is used to execute delete queries including condition on primary key
 	 *	column. It uses binary search on each page to find the row to be deleted. 
 	 */
-	private boolean deleteWithPk(Hashtable<String, Object> columnNameValue) throws DBAppException {
+	private Vector<Row> deleteWithPk(Hashtable<String, Object> columnNameValue) throws DBAppException {
 		boolean found = false;
+		Vector<Row> del = new Vector<Row>();
 		for(int i = it; i >= 0; i--){
 			Page curPage = getPage(i);
 			String pkCondition = columnNameValue.get(primaryKey).toString();
@@ -880,7 +876,7 @@ public class Table implements Serializable{
 			}
 			// if row satisfies conditions, delete it.
 			if(satisfies){
-				curPage.deleteRow(pos);
+				del.add(curPage.deleteRow(pos));
 				found = true;
 				// if current page became empty, delete it too.
 				if(curPage.size() == 0)
@@ -888,7 +884,7 @@ public class Table implements Serializable{
 				break;
 			}
 		}
-		return found;
+		return del;
 	}
 
 	/**
@@ -936,12 +932,327 @@ public class Table implements Serializable{
 	}
 
 	/**
-	 * Deletes the rows that meet all the given conditions from the indexes.
-	 * @param htblColNameValue key:column name, Value: column value
+	 * given the targeted rows, it deletes them from all indexes up to the last
+	 * index [exclusive].
+	 * @param toBeDeleted
 	 */
-	public void deleteFromIndexes(Hashtable<String, Object> htblColNameValue){
-		for(GridIndex gi : index){
-			gi.delete();
+	public void deleteFromIndexes(Vector<Row> toBeDeleted) throws DBAppException {
+		int n = index.size();
+		for(int i = 0; i < n; i++){
+			index.get(i).deleteBruteForce(toBeDeleted);
 		}
+	}
+
+	/**
+	 * 0. build a hashtable that contains name-value pairs
+	 * 1. try to select using an index if it exists
+	 * 2. else, select conventionally using the table.
+	 * @param sqlTerms
+	 * @param logicalOp
+	 */
+	public Iterator select(SQLTerm[] sqlTerms, String[] logicalOp) throws DBAppException {
+		// build hashtable that contains key: column name, value: array {operator, value}
+		Hashtable<String, Object[] > htblColNameValue = new Hashtable<String, Object[]>();
+		for(SQLTerm term : sqlTerms) {
+			htblColNameValue.put(term.get_strColumnName(), new Object[2]);
+			htblColNameValue.get(term.get_strColumnName())[0] = term.get_strColumnName();
+			htblColNameValue.get(term.get_strColumnName())[1] = term.get_objValue();
+		}
+
+		// select with index if exists
+		Iterator it = selectWithIndex(htblColNameValue, logicalOp);
+		if(it != null)
+			return it;
+
+		// else select with table
+		LinkedList<Row> answer = new LinkedList<Row>();
+		int n = pageNames.size();
+		// load each page from the table and search linearly
+		for(int i = 0; i < n; i++){
+			Page p = getPage(i);
+			Vector<Row> pageRows = p.getRow();
+			// for each row in the page, check if this row satisfies all conditions
+			for(Row curRow : pageRows){
+				if(curRow == null)
+					continue;
+				boolean satisfies = evalConditions(curRow, htblColNameValue, logicalOp); // HOW TO EVALUATE ALL CONDITIONS??!
+				if(satisfies)
+					answer.add(curRow);
+			}
+		}
+
+		return answer.listIterator();
+	}
+
+	private Iterator selectWithIndex(Hashtable<String, Object[]> htblColNameValue, String[] logicalOp) throws DBAppException {
+		// 1. loop on all columns in the hashtable to see if any of them is indexed.
+		Vector<String> indexedCols = new Vector<String>();
+		for(Entry<String, Object[]> entry : htblColNameValue.entrySet()){
+			if(htblColNameIndexed.keySet().contains(entry.getKey()))
+				indexedCols.add(entry.getKey());
+		}
+
+		int n = indexedCols.size();
+		if(n == 0) // if no columns are indexed, don't select with index
+			return null;
+
+		// 2. get the index that contains the most columns, and use it in selection
+		GridIndex maxGrid = findMaxIndex(indexedCols);
+		if(maxGrid == null)
+			return null;
+
+
+		LinkedList<Row> answer = new LinkedList<Row>();
+		// todo 3. search for the bucket(s) in the grid
+		Reference rowRef = maxGrid.search();
+		// todo 4. get the row from the bucket/page
+		Row r = getRowByReference(rowRef);
+
+		// todo 5. evaluate operators on that row like we did above. If satisfies, add to answer
+		boolean satisfies = evalConditions(r, htblColNameValue,logicalOp);
+		if(satisfies)
+			answer.add(r);
+
+		return answer.listIterator();
+	}
+
+	private GridIndex findMaxIndex(Vector<String> indexedCols) {
+		GridIndex maxGrid = null;
+		int max = -1;
+		for(GridIndex gi : index){
+			Vector<String> colNames = gi.getIndexedCols();
+			int cntr = 0;
+			for(String col : indexedCols){ // count the number of common columns
+				if(colNames.contains(col))
+					cntr++;
+			}
+
+			if(cntr > max){ // see if it is the new maximum grid index
+				max = cntr;
+				maxGrid = gi;
+			}
+		}
+		return maxGrid;
+	}
+
+	/**
+	 * Given conditions and a row, it checks whether the row meets these conditions.
+	 * @param curRow
+	 * @param htblColNameValue
+	 * @param logicalOp
+	 * @return
+	 */
+	private boolean evalConditions(Row curRow, Hashtable<String, Object[]> htblColNameValue, String[] logicalOp) throws DBAppException {
+		// for each row check:
+		// 1. if it meets inner conditions in the hashtable
+		Vector<Boolean> inner = new Vector<Boolean>(); // this is the vector on which the logical operators will be executed.
+
+		for(Entry<String, Object[]> entry : htblColNameValue.entrySet()){
+			// 1. get value of queried column from the row
+			Object rowVal = curRow.getValue(curRow.getColNames().indexOf(entry.getKey()));
+
+			// 2. compare the two objects and determine if they satisfy the inner operator
+			int compareResult = compareObjects(rowVal, entry.getValue()[1]);
+			String op = (String) entry.getValue()[0];
+			boolean innerCond = evalInnerOperator(compareResult, op);
+			// add the result to the vector of inner condition results
+			inner.add(innerCond);
+		}
+
+		// 2. evaluate the inner conditions combined with logical Operators and return the result
+		return evalLogicalOperators(inner, logicalOp);
+	}
+
+	private boolean evalLogicalOperators(Vector<Boolean> inner, String[] logicalOp) {
+		// base case: if we have only one condition
+		if(inner.size() == 1)
+			return inner.get(0);
+
+		// YOU WERE ABOUT TO IMPLEMENT EVALUATION OF INNER WITH OUTER USING logicalOperator() method
+		boolean result = logicalOperator(inner.get(0), inner.get(1), logicalOp[0]);
+		int curInner = 2; // position of the next inner result
+		int n = inner.size();
+		for(int i = 1; i < logicalOp.length && curInner < n; i++){
+			result = logicalOperator(result, inner.get(curInner), logicalOp[i]);
+			curInner++;
+		}
+		return result;
+	}
+
+	/**
+	 * Given two boolean values and an operator, it returns the result of applying this operator.
+	 * @param a
+	 * @param b
+	 * @param op
+	 * @return
+	 */
+	private boolean logicalOperator(boolean a, boolean b, String op){
+		if(op.equals("AND"))
+			return a && b;
+		else if(op.equals("OR"))
+			return a || b;
+		else if(op.equals("XOR"))
+			return a ^ b;
+		else return false; // SHOULD NEVER BE REACHED!!!
+	}
+
+	/**
+	 * given comparison result between 2 objects and the comparison operator between them,
+	 * it returns true if they satisfy the operator, false otherwise.
+	 * @param comparison
+	 * @param operator
+	 * @return
+	 */
+	private boolean evalInnerOperator(int comparison, String operator){
+		if(operator.equals(">")){
+			if(comparison > 0)
+				return true;
+			return false;
+		}
+		else if(operator.equals(">=")){
+			if(comparison >= 0)
+				return true;
+			return false;
+		}
+		else if(operator.equals("<")){
+			if(comparison < 0)
+				return true;
+			return false;
+		}
+		else if(operator.equals("<=")){
+			if(comparison <= 0)
+				return true;
+			return false;
+		}
+		else if(operator.equals("!=")){
+			if(comparison != 0)
+				return true;
+			return false;
+		}
+		else if(operator.equals("=")){
+			if(comparison == 0)
+				return true;
+			return false;
+		}
+		return false; // SHOULD NEVER BE REACHED AS LONG AS OPERATOR INPUT IS CONSISTENT
+
+	}
+
+	// compares two objects according to their datatypes
+	private int compareObjects(Object obj1, Object obj2) throws DBAppException{
+
+		if( (obj1 instanceof java.lang.Integer) && (obj2 instanceof java.lang.Integer) ) {
+			return ((Integer)obj1).compareTo((Integer) obj2);
+		}
+		else if( (obj1 instanceof java.lang.Double) && (obj2 instanceof java.lang.Double)){
+			return ((Double)obj1).compareTo((Double) obj2);
+		}
+		else if( (obj1 instanceof java.lang.String) && (obj2 instanceof java.lang.String)){
+			return ((String)obj1).compareTo((String) obj2);
+		}
+		else if( (obj1 instanceof java.util.Date) && (obj2 instanceof java.util.Date)){
+			try {
+				String newDate1 = convertDateFormat(obj1.toString());
+				String newDate2 = convertDateFormat(obj2.toString());
+				Date d1 = new SimpleDateFormat("yyyy-MM-dd").parse(newDate1);
+				Date d2 = new SimpleDateFormat("yyyy-MM-dd").parse(newDate2);
+				return d1.compareTo(d2);
+			} catch (ParseException e) {
+				throw new DBAppException(e.getMessage());
+			}
+		}
+		else
+			throw new DBAppException("These objects can't be compared as their types don't match.");
+
+	}
+
+	/**
+	 * given a row reference, it returns the row.
+	 * @param rowRef
+	 * @return
+	 */
+	private Row getRowByReference(Reference rowRef) throws DBAppException {
+		String address = rowRef.getPageAddress();
+		int idx = pageNames.indexOf(address);
+		Page p = getPage(idx); // load page
+
+		// get position of the row by searching for it in the page using primary key
+		int pos = binarySearch(p.getRow(), (String) rowRef.getPrimaryKey());
+		return p.getRow(pos);
+	}
+
+	/**
+	 * This method populates a newly created index with all the values in the table
+	 * @param gi
+	 */
+	public void populateIndex(GridIndex gi) throws DBAppException {
+		int n = pageNames.size();
+		// load each page in the table
+		for(int i = 0; i < n; i++){
+			Page p = getPage(i);
+			Vector<Row> rows = p.getRow();
+			// for each row in this page, create a reference and insert it in the grid index.
+			for(Row r:rows){
+				Vector<Object> rowPage = new Vector<>();
+				rowPage.add(r);
+				rowPage.add(p);
+				gi.insert(rowPage, htblColNameType);
+			}
+		}
+	}
+
+	/**
+	 * this is used to find the most suitable index for the conditions, and use it to delete, then
+	 *  delete from the rest of the indexes using brute force [DEBATABLE !!!!!!]
+	 * @param columnNameValue
+	 * @return
+	 */
+	public boolean deleteWithIndexes(Hashtable<String, Object> columnNameValue) throws DBAppException {
+		boolean done;
+		Vector<String> indexedCols = new Vector<String>();
+		for(Entry<String, Object> entry : columnNameValue.entrySet()){
+			if(htblColNameIndexed.keySet().contains(entry.getKey()))
+				indexedCols.add(entry.getKey());
+		}
+
+		int n = indexedCols.size();
+		if(n == 0) // if no columns are indexed, don't delete with index
+			return false;
+
+		// delete using the most suitable index.
+		GridIndex bestIndex = findMaxIndex(indexedCols);
+		done = bestIndex.deepDelete(columnNameValue, indexedCols);
+
+		// delete from the rest of the indexes USING BRUTE FORCE.
+		for(GridIndex idx : this.index){
+			if(idx.getPath().equals(bestIndex.getPath())) // if this is the best index, continue
+				continue;
+
+			// else delete from the index [shallow delete]
+			done = done && idx.delete(columnNameValue);
+		}
+		return done;
+	}
+
+	/**
+	 * Given a page address and a primary key, this method deletes the satisfying row.
+	 * Used in gridIndex.deepDelete()
+	 * @param pageAddress
+	 * @param primaryKey
+	 */
+	public void deleteRow(String pageAddress, Object primaryKey) throws DBAppException {
+		int pagePos = pageNames.indexOf(pageAddress);
+		Page p = getPage(pagePos); // load page
+		// get row position in the page
+		int rowPos = binarySearch(p.getRow(), primaryKey.toString());
+
+		if(rowPos < 0) // if row is not found in this page, return.
+			return;
+
+		p.deleteRow(rowPos); // delete row from page
+		// if page is now empty, delete it
+		if(p.getRow().size() == 0)
+			deletePage(pagePos);
+		save();
 	}
 }

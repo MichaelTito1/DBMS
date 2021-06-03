@@ -101,10 +101,11 @@ public class DBApp implements DBAppInterface {
 		Hashtable<String, String> max = t.getHtblColNameMax();
 		int maxBucketSize = Integer.parseInt(prop.getProperty("MaximumKeysCountinIndexBucket"));
 		int pkPos = t.getPkPos();
-        GridIndex gi = new GridIndex(mainDir, tableName, columnNames, maxBucketSize, types, min, max, pkPos);
+        GridIndex gi = new GridIndex(t,mainDir, tableName, columnNames, maxBucketSize, types, min, max, pkPos);
 
-        // add the index to the table
+        // add the index to the table and populate it with its values
         t.addIndex(gi);
+        t.populateIndex(gi);
 	}
 
 	@Override
@@ -122,20 +123,6 @@ public class DBApp implements DBAppInterface {
 
 //		Hashtable<String,String> htbl = t.getHtblColNameType();
 		t.insertIntoIndexes(rowPagePos);
-		// data to be taken after insertion in the table [michael] [done]
-		// 1. page address/name
-		// 2. row number of the newly inserted entry
-		// 3. Entry itself
-		// what will be inserted in the index?
-		// 1. indexed column values of the new entry
-		// 2. page address
-		// 3. row number
-
-		//insert in all indices, if any.
-		// 0. implement divisions upon creation [michael] [string and date unsolved]
-		// 1. find bucket to insert into [tifa, john]
-
-
 	}
 
 	@Override
@@ -157,24 +144,29 @@ public class DBApp implements DBAppInterface {
 		Table t = getTable(tableName);
 		if (t == null)
 			throw new DBAppException("Table " + tableName + " not found!");
+		// CASE 1: find the most suitable index for the conditions, and use it to delete, then
+		// delete from the rest of the indexes using brute force [DEBATABLE !!!!!!]
+		boolean delSuccessful = t.deleteWithIndexes(columnNameValue);
+		if(delSuccessful) // if delete with indexes is successful, terminate.
+			return;
 
-		boolean done = t.delete(columnNameValue);
-		if (done) {
-			System.out.println("Delete from table successful.");
-		} else {
-			//throw new DBAppException("Deletion failed. Rows satisfying all query conditions were not found.");
-			System.out.println("Deletion from table failed. Rows satisfying all query conditions were not found.");
-		}
-
-		// delete the same rows from all indexes
-		t.deleteFromIndexes();
+		// CASE 2: if no index can be used for delete, then delete conventionally from table
+		// and delete from all indexes using brute force.
+		Vector<Row> del = t.delete(columnNameValue);
+		// delete the same rows from ALL indexes
+		t.deleteFromIndexes(del);
 	}
 
 	@Override
 	public Iterator selectFromTable(SQLTerm[] sqlTerms, String[] arrayOperators)
 			throws DBAppException {
 		// TODO Auto-generated method stub
-		return null;
+        String tableName = sqlTerms[0].get_strTableName(); // ASSUMING SELECTION IS DONE FROM ONLY ONE TABLE
+        Table t = getTable(tableName);
+        if (t == null)
+            throw new DBAppException("Table " + tableName + " not found!");
+        Iterator it = t.select(sqlTerms, arrayOperators);
+        return it;
 	}
 
 

@@ -1,4 +1,7 @@
 import java.io.*;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Hashtable;
 import java.util.Vector;
 import java.util.Map.Entry;
@@ -8,7 +11,7 @@ public class Bucket implements Serializable {
     private static final long serialVersionUID = 1L;
     private int maxRows;
     // attributes needed to locate a row
-    private Hashtable<Object, Vector<Object> > rowAddress; // key: primary key of each row , value(s): indexed column value(s) of this row
+    private Vector<Reference> references;
     private Vector<String> indexedCols;
     private int size = 0;
     private Vector<Object> min;
@@ -26,7 +29,7 @@ public class Bucket implements Serializable {
      */
     public Bucket(String path, int maxRows, Vector<String> indexedCols, GridIndex gi) throws DBAppException {
         this.maxRows = maxRows;
-        rowAddress = new Hashtable<Object, Vector<Object>>();
+        this.references = new Vector<Reference>();
         this.path = path;
         this.indexedCols = indexedCols;
         this.gi = gi;
@@ -61,8 +64,8 @@ public class Bucket implements Serializable {
         return maxRows;
     }
 
-    public Hashtable<Object, Vector<Object>> getRowAddress() {
-        return rowAddress;
+    public Vector<Reference> getReferences() {
+        return references;
     }
 
     public void save() throws DBAppException {
@@ -85,30 +88,56 @@ public class Bucket implements Serializable {
     }
 
     /**
-     * this method inserts [page address, position of the row in its page, indexed columns' values from the row] in the bucket
-     * @param row
-     * @param htbl
-     * @param pkPos
+     * this method inserts [page address, position of the row in its page, indexed columns' values from the row in the bucket
+     * @param ref reference to be inserted in the bucket.
      */
-    public void insert(Row row, Hashtable<String, String> htbl, int pkPos) throws DBAppException {
+    public void insert(Reference ref) throws DBAppException {
         // if this bucket is full, insert in the overflow bucket the new row [the easy answer] [recheck piazza @583]
         if(size >= maxRows){
             // if bucket is already created, insert directly
-            if(nextBucket != null)
-                nextBucket.insert(row,htbl,pkPos);
-            else {
-                // else if it doesn't exist, create it then insert.
+            if(nextBucket == null)
                 nextBucket = gi.createBucket(min, max);
-                nextBucket.insert(row, htbl,pkPos);
-            }
+            nextBucket.insert(ref);
+            save();
+            return;
+        }
+        // get position of insertion in the bucket, then insert
+        int pos = getInsertionPosition(ref);
+        this.references.insertElementAt(ref, pos);
+        save();
+    }
+
+    /**
+     * Get insertion position of a reference in the bucket.
+     * @param ref
+     * @return
+     */
+    private int getInsertionPosition(Reference ref) {
+        // Lower and upper bounds
+        int n = this.references.size();
+        int start = 0;
+        int end = n - 1;
+
+        // Traverse the search space
+        while (start <= end)
+        {
+            int mid = (start + end) / 2;
+
+            // If K is found
+            Reference m = references.get(mid);
+            int comp = m.compareTo(ref);
+            if(comp == 0)
+                return mid;
+
+            else if (comp < 0)
+                start = mid + 1;
+
+            else
+                end = mid - 1;
         }
 
-        Vector<Object> filteredCols = filterIndexedCols(htbl, row); // get indexed columns' values only
-        Object pkVal = row.getValue(pkPos);
-        rowAddress.put(pkVal,filteredCols);
-        // [OLD] if this page is NOT new to the bucket, insert directly
-        // else if this page is new, initialize its hashtable then insert
-        save();
+        // Return insert position
+        return end + 1;
     }
 
     /** Bucket : indexedCols, rowAddress
@@ -130,17 +159,110 @@ public class Bucket implements Serializable {
     }
 
     /**
-     * given a primary key of the value to be deleted, this method deletes it from the bucket.
-     * If not found in this bucket, it should call its overflow bucket's delete method
-     * @param pk
+     * given a reference of the value to be deleted, this method deletes it from the bucket.
+     * If not found in this bucket, it should call its overflow bucket's delete method.
+     * @param r1
      * @return deleted object if deleted, null if deletion failed for whatever reason.
      */
-    public Vector<Object> delete(Object pk) throws DBAppException {
-        Vector<Object> deleted = rowAddress.remove(pk); // attempt deletion
-        if(deleted == null){ // if not found, delete it from the overflow bucket.
-            deleted = nextBucket.delete(pk);
+    public Reference delete(Reference r1) throws DBAppException {
+        int n = references.size();
+        // delete reference from this bucket
+        for(int i = 0; i < n; i++){
+            int comp = r1.compareTo(references.get(i));
+            if(comp == 0){
+                Reference del = references.remove(i);
+                size--;
+                save();
+                return del;
+            }
         }
+        // if reference is not found, search for it in the overflow bucket.
+        // if there is no overflow bucket return null.
+        if(nextBucket == null)
+            return null;
+        return nextBucket.delete(r1);
+    }
+
+    /**
+     * Given a primary key, the method searches for and deletes this primary key
+     * from this bucket or overflow buckets.
+     * @param targetPK
+     * @return
+     */
+    public boolean deleteRow(Object targetPK) throws DBAppException {
+        for(int i = size -1; i >= 0; i--){
+            Reference ref = references.get(i);
+            Object refPk = ref.getPrimaryKey();
+            int comp = compareObjects(refPk, targetPK);
+            if(comp == 0) // if this is the targeted reference, delete (this will search for it in .
+                return references.remove(i) != null;
+        }
+        return nextBucket.deleteRow(targetPK);
+    }
+
+    public boolean deleteReference(int i) throws DBAppException {
+        references.remove(i);
+        size--;
         save();
-        return deleted;
+        return true;
+    }
+
+    public Bucket getNextBucket() {
+        return nextBucket;
+    }
+
+    // compares two objects according to their datatypes
+    private int compareObjects(Object obj1, Object obj2) throws DBAppException{
+
+        if( (obj1 instanceof java.lang.Integer) && (obj2 instanceof java.lang.Integer) ) {
+            return ((Integer)obj1).compareTo((Integer) obj2);
+        }
+        else if( (obj1 instanceof java.lang.Double) && (obj2 instanceof java.lang.Double)){
+            return ((Double)obj1).compareTo((Double) obj2);
+        }
+        else if( (obj1 instanceof java.lang.String) && (obj2 instanceof java.lang.String)){
+            return ((String)obj1).compareTo((String) obj2);
+        }
+        else if( (obj1 instanceof java.util.Date) && (obj2 instanceof java.util.Date)){
+            try {
+                String newDate1 = convertDateFormat(obj1.toString());
+                String newDate2 = convertDateFormat(obj2.toString());
+                Date d1 = new SimpleDateFormat("yyyy-MM-dd").parse(newDate1);
+                Date d2 = new SimpleDateFormat("yyyy-MM-dd").parse(newDate2);
+                return d1.compareTo(d2);
+            } catch (ParseException e) {
+                throw new DBAppException(e.getMessage());
+            }
+        }
+        else
+            throw new DBAppException("These objects can't be compared as their types don't match.");
+
+    }
+
+    // this method converts date of format like Sun Oct 17 00:00:00 EET 1948
+    // to yyyy-MM-dd
+    private String convertDateFormat(String searchVal) throws DBAppException {
+        String oldFormat = "EEE MMM dd HH:mm:ss zzz yyyy";
+        String newFormat = "yyyy-MM-dd";
+        String newDate;
+        SimpleDateFormat sdf = new SimpleDateFormat(oldFormat);
+        Date d1 = null;
+        // checking first if the entered string is of the targeted format
+
+        try {
+            SimpleDateFormat sdf1 = new SimpleDateFormat(newFormat);
+            Date d2 = sdf1.parse(searchVal);
+            return searchVal;
+        } catch (ParseException e1) {
+            try {
+                d1 = sdf.parse(searchVal);
+            } catch (ParseException e) {
+                throw new DBAppException(e.getMessage());
+            }
+        }
+
+        sdf.applyPattern(newFormat);
+        newDate = sdf.format(d1);
+        return newDate;
     }
 }
