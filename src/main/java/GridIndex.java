@@ -15,7 +15,7 @@ public class GridIndex implements Serializable {
     private Vector<String> colTypes;    // vector of datatypes of indexed columns
     private Vector<Object> colMin;      // vector of minimum size of each indexed column IN ORDER
     private Vector<Object> colMax;      // vector of maximum size of each indexed column IN ORDER
-    // key = column name, Value: a vector of size 10, each element contains its upper boundary. It should respect column datatypes.
+    // key = column name, Value: a vector of size 11, each element contains its upper boundary. It should respect column datatypes.
     private Hashtable<String, Vector<Object>> htblRanges;
     private boolean pkIndexed = false;  // a flag to indicate if this index is created on the primary key
     private int pkPos;
@@ -567,13 +567,12 @@ public class GridIndex implements Serializable {
      * this method deletes the rows satisfying the given conditions from both
      * the table and the index, hence the name deepDelete.
      * @param columnNameValue
-     * @param indexedCols
      * @return
      */
-    public boolean deepDelete(Hashtable<String, Object> columnNameValue, Vector<String> indexedCols) throws DBAppException {
+    public boolean deepDelete(Hashtable<String, Object> columnNameValue) throws DBAppException {
         boolean done = true;
         // 1. todo : locate buckets satisfying the conditions
-        Vector<Bucket> buckets = ;
+        Vector<Bucket> buckets = locateTargetBuckets(columnNameValue);
         // 2. : for each bucket and its overflow:
         // 2a. : find satisfying references and delete their rows then delete the references
         for(Bucket b : buckets){
@@ -593,6 +592,39 @@ public class GridIndex implements Serializable {
                 done = done && deepDeleteFromOverflow(b.getNextBucket(), columnNameValue);
         }
         return done;
+    }
+
+    /**
+     * It locates and returns the buckets matching the given conditions
+     * @param columnNameValue non-partial Query
+     * @return
+     */
+    private Vector<Bucket> locateTargetBuckets(Hashtable<String, Object> columnNameValue) throws DBAppException {
+        Vector<Integer> pos = new Vector<Integer>();
+        int n = this.indexedCols.size();
+        for(int i = 0; i < n; i++){
+            String colName = indexedCols.get(i);
+            // if column value is null, then it belongs to the very last division.
+            if(columnNameValue.get(colName) == null){
+                pos.add(10);
+                break;
+            }
+
+            // for each indexed column, get its suitable range from divisions
+            Vector<Object> range = htblRanges.get(colName);
+            for (int j = 0; j < range.size() - 1; j++) {
+                int comp = compareObjects(columnNameValue.get(colName), range.get(j));
+                if (comp < 0) {
+                    pos.add(j);
+                    break;
+                }
+            }
+        }
+        // get and return target bucket from the grid.
+        int idx = toPosition(pos);
+        Vector<Bucket> ans = new Vector<>();
+        ans.add(grid.get(idx));
+        return ans;
     }
 
     /**

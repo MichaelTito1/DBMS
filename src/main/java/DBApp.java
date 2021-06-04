@@ -133,7 +133,27 @@ public class DBApp implements DBAppInterface {
 		t = getTable(tableName);
 		if (t == null)
 			throw new DBAppException("Table " + tableName + " not found!");
-		t.update(clusteringKeyValue, columnNameValue);
+
+		// if no indices are found, update conventionally.
+		if(t.getIndex().size() == 0){
+			t.update(clusteringKeyValue, columnNameValue);
+			return;
+		}
+		// else, update using indices.
+		//todo 1: parse primary key into appropriate datatype.
+		Object pk = t.parsePk(clusteringKeyValue);
+
+		//todo 2: delete the primary key using DBApp.deleteFromTable
+		Hashtable<String, Object> htblPK = new Hashtable<>();
+		htblPK.put(t.getPrimaryKey(), pk);
+		deleteFromTable(tableName, htblPK);
+
+		//todo 3: insert the primary key + given values using DBApp.insertIntoTable
+		for(Entry<String,Object> entry : columnNameValue.entrySet())
+			htblPK.put(entry.getKey(), entry.getValue());
+
+		insertIntoTable(tableName, htblPK);
+
 		System.out.println("Updating row of primary key '" + clusteringKeyValue + "' is successful.");
 	}
 

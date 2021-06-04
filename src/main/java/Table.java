@@ -1001,6 +1001,18 @@ public class Table implements Serializable{
 		if(maxGrid == null)
 			return null;
 
+		// new thought process on steps:
+		// step1 : partial query on each condition separately will each give us a list of references
+		// step2 : combine each 2 results using their corresponding logical operator
+		// step3 : repeat 2 until final res is reached.
+
+		// new thought process 2:
+		// step1: query on the first dimension and get fitting range(s)
+		// step2: check all references in the fitting ranges for the rest of the conditions (both comparison and logical operators).
+		// step2a: check comparison operators are met. If one is not met, skip this reference.
+		// step2b: check logical operators are met. evaluate all operators till the end. if result is true add reference to answer, else skip it.
+		// step3: save references that meet the conditions.
+
 
 		LinkedList<Row> answer = new LinkedList<Row>();
 		// todo 3. search for the bucket(s) in the grid
@@ -1209,6 +1221,9 @@ public class Table implements Serializable{
 	 */
 	public boolean deleteWithIndexes(Hashtable<String, Object> columnNameValue) throws DBAppException {
 		boolean done;
+
+		// 	maybe redundant ?!?!?!
+		// What is its purpose? already every grid index has a vector of its columns !
 		Vector<String> indexedCols = new Vector<String>();
 		for(Entry<String, Object> entry : columnNameValue.entrySet()){
 			if(htblColNameIndexed.keySet().contains(entry.getKey()))
@@ -1221,7 +1236,7 @@ public class Table implements Serializable{
 
 		// delete using the most suitable index.
 		GridIndex bestIndex = findMaxIndex(indexedCols);
-		done = bestIndex.deepDelete(columnNameValue, indexedCols);
+		done = bestIndex.deepDelete(columnNameValue);
 
 		// delete from the rest of the indexes USING BRUTE FORCE.
 		for(GridIndex idx : this.index){
@@ -1254,5 +1269,32 @@ public class Table implements Serializable{
 		if(p.getRow().size() == 0)
 			deletePage(pagePos);
 		save();
+	}
+
+	public String getPrimaryKey() {
+		return primaryKey;
+	}
+
+	/**
+	 * returns clustering key in its correct datatype [int,double,date,string]
+	 * @param clusteringKeyValue
+	 * @return
+	 */
+	public Object parsePk(String clusteringKeyValue) throws DBAppException {
+		String type = htblColNameType.get(primaryKey);
+		if(type.equals("java.lang.Integer"))
+			return Integer.parseInt(clusteringKeyValue);
+		else if(type.equals("java.lang.Double"))
+			return Double.parseDouble(clusteringKeyValue);
+		else if(type.equals("java.util.Date")){
+			try {
+				String newDate1 = convertDateFormat(clusteringKeyValue);
+				Date d1 = new SimpleDateFormat("yyyy-MM-dd").parse(newDate1);
+				return d1;
+			} catch (ParseException e) {
+				System.out.println(e.getMessage());
+			}
+		}
+		return clusteringKeyValue;
 	}
 }
