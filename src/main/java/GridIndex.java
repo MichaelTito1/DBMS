@@ -571,7 +571,7 @@ public class GridIndex implements Serializable {
      */
     public boolean deepDelete(Hashtable<String, Object> columnNameValue) throws DBAppException {
         boolean done = true;
-        // 1. todo : locate buckets satisfying the conditions
+        // 1. locate buckets satisfying the conditions
         Vector<Bucket> buckets = locateTargetBuckets(columnNameValue);
         // 2. : for each bucket and its overflow:
         // 2a. : find satisfying references and delete their rows then delete the references
@@ -688,6 +688,168 @@ public class GridIndex implements Serializable {
                 b.deleteRow(delPk);
             }
         }
+    }
+
+    /**
+     * Given a hashtable of conditions, it returns a hashtable of column names and their corresponding
+     * divisions that meet those conditions.
+     * @param htblColNameValue
+     * @return
+     */
+    public Hashtable<String, Vector<Integer>> select(Hashtable<String, Object[]> htblColNameValue) throws DBAppException {
+        Hashtable<String, BitSet > ans = new Hashtable<>();
+
+        for(Map.Entry<String, Object[]> entry : htblColNameValue.entrySet()){
+            // for each condition, get fitting divisions, then add them to the hashtable of accepted divisions
+            BitSet acc = getFittingDivisions(entry.getKey(), (String) entry.getValue()[0], entry.getValue()[1]);
+            ans.put(entry.getKey(), acc);
+        }
+
+        // todo: get all satisfying coordinates and change them using toPosition()
+
+    }
+
+    /**
+     * Given a column name and the condition put on it, it returns a vector that contains the positions of
+     * the divisions that satisfy this condition. It uses a different helper method for each type of
+     * comparison operator to evaluate the condition.
+     * @param column
+     * @param operator
+     * @param value
+     * @return
+     */
+    private BitSet getFittingDivisions(String column, String operator, Object value) throws DBAppException {
+        BitSet ans;
+        Vector<Object> colDivisions = htblRanges.get(column); // vector of how column is divided
+
+        if(operator.equals(">"))
+            ans = greater(column, value);
+        else if(operator.equals(">="))
+            ans = greaterEqual(column, value);
+        else if(operator.equals("<"))
+            ans = smaller(column, value);
+        else if(operator.equals("<="))
+            ans = smallerEqual(column, value);
+        else if(operator.equals("="))
+            ans = equal(column, value);
+        else if(operator.equals("!="))
+            ans = notEqual(column, value);
+        else
+            throw new DBAppException("Comparison operator "+ operator + " is invalid." );
+        return ans;
+
+    }
+
+    private BitSet smallerEqual(String column, Object value) throws DBAppException {
+        if (value == null)
+            throw new DBAppException("Operator <= can't be applied on null value");
+        BitSet ranges = new BitSet(11);
+        Vector<Object> colDivisions = htblRanges.get(column);
+        int n = colDivisions.size();
+        int i = 0 ;
+        while (i < n-1){
+            int comp = compareObjects(value,colDivisions.get(i));
+            if (comp < 0)
+                break;
+
+            i++;
+        }
+        for (int j = 0 ; j <= i ; j++ ){
+            ranges.set(j);
+        }
+        return ranges;
+    }
+
+    private BitSet smaller(String column, Object value) throws DBAppException {
+        if (value == null)
+            throw new DBAppException("Operator < can't be applied on null value");
+        BitSet ranges = new BitSet(11);
+        Vector<Object> colDivisions = htblRanges.get(column);
+        int n = colDivisions.size();
+        int i = 0;
+        while (i < n-1){
+            int comp = compareObjects(value,colDivisions.get(i));
+            if(comp == 0) // corner case: when value == upper boundary
+                break;
+            if (comp < 0)
+                break;
+            i++;
+        }
+        for (int j = 0 ; j <= i  ; j++){
+            ranges.set(j);
+        }
+        return ranges;
+
+    }
+
+    private BitSet greaterEqual(String column, Object value) throws DBAppException {
+        if(value == null)
+            throw new DBAppException("Operator >= can't be applied on null values.");
+        BitSet ranges = new BitSet(11);
+        Vector<Object> colDivisions = htblRanges.get(column); // vector of how column is divided
+        int n = colDivisions.size();
+        int i=0;
+        while (i < n-1){
+            int comp = compareObjects(value, colDivisions.get(i));
+            if(comp < 0)
+                break;
+            i++;
+        }
+
+        for(int j = i; j < n-1; j++)
+            ranges.set(j);
+        return ranges;
+    }
+
+    private BitSet greater(String column, Object value) throws DBAppException {
+        if(value == null)
+            throw new DBAppException("Operator > can't be applied on null values.");
+        BitSet ranges = new BitSet(11);
+        Vector<Object> colDivisions = htblRanges.get(column); // vector of how column is divided
+        int n = colDivisions.size();
+
+        // know in which range this value would belong then our answer will be all the following ranges
+        int i = 0;
+        while(i < n-1){
+            int comp = compareObjects(value, colDivisions.get(i));
+            i++;
+            if(comp < 0)
+                break;
+        }
+
+        for(int j = i; j < n-1; j++)
+            ranges.set(j);
+        return ranges;
+    }
+
+    private BitSet notEqual(String column, Object value) throws DBAppException {
+        BitSet ranges = new BitSet(11);
+        if(value == null){
+            ranges.set(0,10);
+            return ranges;
+        }
+        ranges = equal(column, value);
+        ranges.flip(0, 11); // not equal is the negation of equal
+        return ranges;
+    }
+
+    private BitSet equal(String column, Object value) throws DBAppException {
+        BitSet ranges = new BitSet(11);
+        if(value == null){
+            ranges.set(10);
+            return ranges;
+        }
+        Vector<Object> colDivisions = htblRanges.get(column); // vector of how column is divided
+        int n = colDivisions.size();
+        int i = 0;
+        while(i < n-1){
+            int comp = compareObjects(value, colDivisions.get(i));
+            if(comp < 0)
+                break;
+            i++;
+        }
+        ranges.set(i);
+        return ranges;
     }
 }
 

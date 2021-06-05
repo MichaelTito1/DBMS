@@ -985,40 +985,25 @@ public class Table implements Serializable{
 	}
 
 	private Iterator selectWithIndex(Hashtable<String, Object[]> htblColNameValue, String[] logicalOp) throws DBAppException {
-		// 1. loop on all columns in the hashtable to see if any of them is indexed.
-		Vector<String> indexedCols = new Vector<String>();
-		for(Entry<String, Object[]> entry : htblColNameValue.entrySet()){
-			if(htblColNameIndexed.keySet().contains(entry.getKey()))
-				indexedCols.add(entry.getKey());
-		}
-
-		int n = indexedCols.size();
+		// check if there exists any index
+		int n = index.size();
 		if(n == 0) // if no columns are indexed, don't select with index
 			return null;
 
 		// 2. get the index that contains the most columns, and use it in selection
-		GridIndex maxGrid = findMaxIndex(indexedCols);
+		GridIndex maxGrid = checkIndexForSelect(htblColNameValue.keySet());
 		if(maxGrid == null)
 			return null;
 
-		// new thought process on steps:
-		// step1 : partial query on each condition separately will each give us a list of references
-		// step2 : combine each 2 results using their corresponding logical operator
-		// step3 : repeat 2 until final res is reached.
-
-		// new thought process 2:
-		// step1: query on the first dimension and get fitting range(s)
-		// step2: check all references in the fitting ranges for the rest of the conditions (both comparison and logical operators).
-		// step2a: check comparison operators are met. If one is not met, skip this reference.
-		// step2b: check logical operators are met. evaluate all operators till the end. if result is true add reference to answer, else skip it.
-		// step3: save references that meet the conditions.
-
-
 		LinkedList<Row> answer = new LinkedList<Row>();
-		// todo 3. search for the bucket(s) in the grid
-		Reference rowRef = maxGrid.search();
-		// todo 4. get the row from the bucket/page
-		Row r = getRowByReference(rowRef);
+		// todo 3. search for the bucket(s) in the grid satisfying each SQLTerm individually
+		// hashtable: key: column name , value: vector of accepted divisions
+		Hashtable<String, Vector<Integer> > acceptedDivisions = maxGrid.select(htblColNameValue);
+		// todo 4. filter buckets that satisfy logical operators [And = intersect, or = union, a xor b = a - b]
+		// this should return vector of references, NOT buckets.
+
+		// todo 4. use references to get the rows from the page
+
 
 		// todo 5. evaluate operators on that row like we did above. If satisfies, add to answer
 		boolean satisfies = evalConditions(r, htblColNameValue,logicalOp);
@@ -1026,6 +1011,33 @@ public class Table implements Serializable{
 			answer.add(r);
 
 		return answer.listIterator();
+	}
+
+	/**
+	 * checks if there is an index for a given set of columns. The index must contain only those columns.
+	 * @param keySet
+	 * @return
+	 */
+	private GridIndex checkIndexForSelect(Set<String> keySet) {
+		int n = index.size();
+		for(GridIndex grid : index){
+			Set<String> gridSet = convertVectorToSet(grid.getIndexedCols());
+			if(keySet.equals(gridSet))
+				return grid;
+		}
+		return null;
+	}
+
+	/**
+	 * Given a vector, it converts it to a set.
+	 * @param indexedCols
+	 * @return
+	 */
+	private Set<String> convertVectorToSet(Vector<String> indexedCols) {
+		Set<String> s = new HashSet<String>();
+		for(String col : indexedCols)
+			s.add(col);
+		return s;
 	}
 
 	private GridIndex findMaxIndex(Vector<String> indexedCols) {
@@ -1075,7 +1087,7 @@ public class Table implements Serializable{
 		return evalLogicalOperators(inner, logicalOp);
 	}
 
-	private boolean evalLogicalOperators(Vector<Boolean> inner, String[] logicalOp) {
+	private boolean evalLogicalOperators(Vector<Boolean> inner, String[] logicalOp) { // [true, false, true, ...] , [and, or, and, xor,...
 		// base case: if we have only one condition
 		if(inner.size() == 1)
 			return inner.get(0);
@@ -1298,3 +1310,31 @@ public class Table implements Serializable{
 		return clusteringKeyValue;
 	}
 }
+
+// try this:
+// 1. use index that has ONLY the queried columns
+// 2. search normally using divisions, while evaluating comparison operators
+// 3. after getting coordinates, get the corresponding buckets for each term
+// 4. evaluate logical operators accordingly.
+
+// if no such index is found, select using table search. [id !=/= 12 and/or/xor age = asdamlkand]
+// 1. primary key => binary search [mwgoda]
+// 2. other => linear search
+
+
+/*Vector <Bucket> bucks = maxGrid.getGrid();
+		bucks.get(0).getReferences();
+		Vector <Reference> ref = bucks.get(0).getReferences();
+		Row r = getRowByReference(ref.get(0));
+		Vector <Boolean> results = new Vector<Boolean>();
+		boolean a = evalConditions(r,htblColNameValue,logicalOp); //need to take a row in 1st place
+		results.add(a);
+		boolean b = evalLogicalOperators(results,logicalOp); // take vector of boolean in 1st place
+
+		compareObjects();
+		compareRows();
+		for(int i = 0 ; i<logicalOp.length ; i++){
+			if(logicalOp[i].equals("AND") || logicalOp[i].equals("OR") || logicalOp[i].equals("XOR"))
+				logicalOperator(a,b,logicalOp[i]);
+		}
+		getRowByReference()*/

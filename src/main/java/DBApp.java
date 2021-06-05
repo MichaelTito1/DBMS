@@ -181,7 +181,12 @@ public class DBApp implements DBAppInterface {
 	public Iterator selectFromTable(SQLTerm[] sqlTerms, String[] arrayOperators)
 			throws DBAppException {
 		// TODO Auto-generated method stub
-        String tableName = sqlTerms[0].get_strTableName(); // ASSUMING SELECTION IS DONE FROM ONLY ONE TABLE
+        String tableName = sqlTerms[0].get_strTableName();
+
+        // SELECTION IS DONE FROM ONLY ONE TABLE
+        // ONLY ONE TYPE OF LOGICAL OPERATOR
+        // select using only the perfectly matching index
+
         Table t = getTable(tableName);
         if (t == null)
             throw new DBAppException("Table " + tableName + " not found!");
