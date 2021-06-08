@@ -2,6 +2,8 @@ import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class GridIndex implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -696,8 +698,8 @@ public class GridIndex implements Serializable {
      * @param htblColNameValue
      * @return
      */
-    public Hashtable<String, Vector<Integer>> select(Hashtable<String, Object[]> htblColNameValue) throws DBAppException {
-        Hashtable<String, BitSet > ans = new Hashtable<>();
+    public Vector<Reference> select(Hashtable<String, Object[]> htblColNameValue, String logicalOp) throws DBAppException {
+        LinkedHashMap<String, BitSet > ans = new LinkedHashMap<>();
 
         for(Map.Entry<String, Object[]> entry : htblColNameValue.entrySet()){
             // for each condition, get fitting divisions, then add them to the hashtable of accepted divisions
@@ -705,8 +707,109 @@ public class GridIndex implements Serializable {
             ans.put(entry.getKey(), acc);
         }
 
+        Vector<Integer> bucketPos;
         // todo: get all satisfying coordinates and change them using toPosition()
+        if(logicalOp.toLowerCase(Locale.ROOT).equals("and"))
+            bucketPos = getAndCoordinates(ans);
+        else
+            bucketPos = getOrCoordinates(ans);
 
+        // loop on each bucket and select references that meet the conditions.
+        int numBuckets = bucketPos.size();
+        Vector<Reference> refs = new Vector<>(); // references that fit the conditions
+        for (int i = 0; i < numBuckets; i++) {
+            Bucket b = grid.get(bucketPos.get(i));
+            refs.addAll(b.select(htblColNameValue, logicalOp));
+        }
+
+        // return the selected references to the table. The table should load each corresponding
+        // row from the page and add it to the linked list or whatever.
+        return refs;
+    }
+
+    private Vector<Integer> getOrCoordinates(LinkedHashMap<String, BitSet> divisions) {
+        Vector<Integer> ans = new Vector<>();
+        int numCols = divisions.keySet().size();
+        Vector<String> keys = (Vector<String>) divisions.keySet();
+        int i = 0;
+        // we'll use the getAndCoordinates to simulate "Or"
+        for(Map.Entry<String, BitSet> entry : divisions.entrySet()){
+            LinkedHashMap<String, BitSet> temp = new LinkedHashMap<>();
+            // put don't cares in all columns before current column "column[i]"
+            BitSet dontCares = new BitSet(11);
+            dontCares.set(0, 11);
+            for (int j = 0; j < i; j++) {
+                temp.put(keys.get(j), dontCares);
+            }
+            // then put the i itself
+            temp.put(entry.getKey(), entry.getValue());
+
+            // then put dont cares in all columns after the current column.
+            for (int j = i+1; j < numCols; j++) {
+                temp.put(keys.get(j), dontCares);
+            }
+            i++;
+            // calculate the permutations with current don't cares
+            ans.addAll(getAndCoordinates(temp));
+        }
+        return ans;
+    }
+
+    /**
+     * Code written by: Dr. Ahmed Hesham <3
+     * @param ans
+     * @return
+     */
+    private Vector<Integer> getAndCoordinates(LinkedHashMap<String, BitSet> ans) {
+        Vector<Vector<Integer>> coordinates = new Vector<>();
+        Vector<Integer> innerVector = new Vector<>();
+        int keySetSize = ans.keySet().size();
+
+        for (int i = 0; i < keySetSize; i++) {
+            innerVector.add(-1);
+        }
+        // equation to calculate no. of permutations (no. of 1s in each col * next col .. )
+        int permutations = calcPermutations(ans);
+        for (int i = 0; i < permutations; i++) {
+            coordinates.add((Vector<Integer>) innerVector.clone());
+        }
+//        int occurrence = permutations;
+        String keys[] = Arrays.copyOf(ans.keySet().toArray(), ans.keySet().toArray().length, String[].class);
+        Vector<String> coordinatePermutations = new Vector<String>();
+        for (int i = 0; i < keySetSize; i++) {
+            BitSet columnBitSet = ans.get(keys[i]);
+            int z[] = columnBitSet.stream().toArray();
+            Vector<String> sets = new Vector();
+            Arrays.stream(z).forEach(c -> sets.add(c + ","));
+
+            if (i == 0) {
+                coordinatePermutations.addAll(sets);
+                continue;
+            }
+
+            coordinatePermutations = coordinatePermutations.stream().flatMap(s1 -> sets.stream().map(s3 -> s1 + s3)).collect(Collectors.toCollection(Vector::new));
+        }
+
+        // parsing coordinates from string to int and storing them in vector of coordinates and
+        // then convert it to 1D position
+        Vector<Integer> bucketPos = new Vector<>();
+        for (int j = 0; j < permutations; j++) {
+            String coor = coordinatePermutations.get(j);
+            String[] strArr = coor.trim().split(",");
+            Vector<Integer> arr = new Vector<>();
+            for (int i = 0; i < strArr.length; i++)
+                arr.set(i, Integer.parseInt(strArr[i]));
+            coordinates.set(j, arr);
+            bucketPos.add(toPosition(arr));
+        }
+        return bucketPos;
+    }
+
+    private int calcPermutations(LinkedHashMap<String, BitSet> ans) {
+        int mult = 1;
+        for(Map.Entry<String, BitSet> entry : ans.entrySet())
+            mult *= entry.getValue().stream().toArray().length;
+        return mult;
     }
 
     /**
@@ -851,7 +954,6 @@ public class GridIndex implements Serializable {
         ranges.set(i);
         return ranges;
     }
-}
 
 /* INSERT PSEUDOCODE
  assume eno indexed columns contain the dimensions in the same order
@@ -882,10 +984,6 @@ public class GridIndex implements Serializable {
    3D GRID [id, age, name] grid[][][] .. grid[:][pos]
    common{ age, name}
  */
-
-
-
-
 /* Update Pseudocode
 
 1-Since we store the primary key so we will check if it's indexed:
@@ -905,10 +1003,87 @@ public class GridIndex implements Serializable {
 
  */
 
+    public static void main(String[] args) {
+        LinkedHashMap<String, BitSet> ans =  new LinkedHashMap<>();
+        BitSet b = new BitSet(11);
+        b.set(0);
+        b.set(3);
+        ans.put("age", (BitSet) b.clone());
+        b.clear();
+
+        b.set(1);
+        b.set(2);
+        ans.put("id", (BitSet) b.clone());
+        b.clear();
+
+        b.set(3);
+        b.set(4);
+        b.set(5);
+        ans.put("name", (BitSet) b.clone());
+        b.clear();
+
+        System.out.println(ans);
+        Vector<Vector<Integer>> coordinates = new Vector<>();
+        Vector<Integer> innerVector = new Vector<>();
+        int keySetSize = ans.keySet().size();
+
+        System.out.println("KEYSETSEIE " + keySetSize);
 
 
-/* Select PseudoCode
+
+        for (int i = 0; i < keySetSize; i++) {
+            innerVector.add(-1);
+        }
+        // equation to calculate no. of permutations (no. of 1s in each col * next col .. )
+        int permutations = 12;
+        for (int i = 0; i < permutations; i++) {
+            coordinates.add((Vector<Integer>) innerVector.clone());
+        }
+        int occurrence = permutations;
+        System.out.println(coordinates);
+        String keys[] = Arrays.copyOf(ans.keySet().toArray(), ans.keySet().toArray().length, String[].class);
+        Vector<String> coordinatePermutations = new Vector<String>();
+        for (int i = 0; i < keySetSize; i++) {
+            BitSet columnBitSet = ans.get(keys[i]);
+            int z[] = columnBitSet.stream().toArray();
+            Vector<String > sets = new Vector();
+            Arrays.stream(z).forEach(c -> sets.add(c+","));
+
+            if(i == 0){
+                coordinatePermutations.addAll(sets);
+                continue;
+            }
+
+            coordinatePermutations = coordinatePermutations.stream().flatMap(s1 -> sets.stream().map(s3 -> s1+s3)).collect(Collectors.toCollection(Vector::new));
 
 
- */
+//
+//            int remainder =sets.size();
+//            occurrence /=remainder;
+//
+//            System.out.println("COLUMN " + keys[i]);
+//            System.out.println("SETS " + sets);
+//            System.out.println("OCCU " + occurrence);
+//            System.out.println("COL SIZE " + columnBitSet.toLongArray().length);
+//            System.out.println("REMAIN " + remainder);
+//            Vector<Integer> elements = Collections.nCopies(occurrence,sets).stream().flatMap(Vector::stream).sorted().collect(Collectors.toCollection(Vector::new));
+////            Collections.nCopies(occurrence,sets).stream().flatMap(Vector::stream).sorted().forEach(System.out::println);
+//
+//
+//
+//            System.out.println("COL " + columnBitSet);
+//            System.out.println("Arra " + Arrays.toString(columnBitSet.toLongArray()) );
+//            System.out.println("ELEMETNS " + elements);
+//
+//            System.out.println("==============================");
+//            for (int j = 0; j < elements.size(); j++) {
+//
+//                coordinates.get(j).set(i, elements.get(j));
+//
+//            }
 
+
+        }
+        System.out.println(coordinatePermutations);
+    }
+}

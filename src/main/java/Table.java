@@ -998,17 +998,12 @@ public class Table implements Serializable{
 		LinkedList<Row> answer = new LinkedList<Row>();
 		// todo 3. search for the bucket(s) in the grid satisfying each SQLTerm individually
 		// hashtable: key: column name , value: vector of accepted divisions
-		Hashtable<String, Vector<Integer> > acceptedDivisions = maxGrid.select(htblColNameValue);
-		// todo 4. filter buckets that satisfy logical operators [And = intersect, or = union, a xor b = a - b]
-		// this should return vector of references, NOT buckets.
+		Vector<Reference> acceptedRefs = maxGrid.select(htblColNameValue, logicalOp[0]);
 
-		// todo 4. use references to get the rows from the page
-
-
-		// todo 5. evaluate operators on that row like we did above. If satisfies, add to answer
-		boolean satisfies = evalConditions(r, htblColNameValue,logicalOp);
-		if(satisfies)
+		for(Reference ref : acceptedRefs){
+			Row r = getRowByReference(ref);
 			answer.add(r);
+		}
 
 		return answer.listIterator();
 	}

@@ -1,9 +1,7 @@
 import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Hashtable;
-import java.util.Vector;
+import java.util.*;
 import java.util.Map.Entry;
 
 // Vector<Int, vector of indexed attributes>
@@ -264,5 +262,102 @@ public class Bucket implements Serializable {
         sdf.applyPattern(newFormat);
         newDate = sdf.format(d1);
         return newDate;
+    }
+
+    /**
+     * Given a set of conditions, find all satisfying references in this bucket and overflow buckets.
+     * @param htblColNameValue comparison conditions
+     * @param logicalOp logical operator used
+     * @return
+     */
+    public Vector<Reference> select(Hashtable<String, Object[]> htblColNameValue, String logicalOp) throws DBAppException {
+        Vector<Reference> ans = new Vector<>();
+        Vector<Boolean> condResults;
+        for (Reference ref : references){
+
+            condResults = evalConditionsOnReference(htblColNameValue, ref, logicalOp);
+            boolean res = evalLogicalOperator(condResults, logicalOp);
+            if(res)
+                ans.add(ref);
+        }
+        ans.addAll(nextBucket.select(htblColNameValue, logicalOp));
+        return ans;
+    }
+
+    /**
+     * Given a set of comparison conditions and a reference, it checks if this reference meets all conditions.
+     * @param htblColNameValue
+     * @param ref
+     * @param logicalOp
+     * @return
+     */
+    private Vector<Boolean> evalConditionsOnReference(Hashtable<String, Object[]> htblColNameValue, Reference ref, String logicalOp) throws DBAppException {
+        Vector<Boolean> ans = new Vector<>();
+        for(Entry<String, Object[]> entry : htblColNameValue.entrySet()){
+            String operator = (String) entry.getValue()[0];
+            String column = entry.getKey();
+            Object value = entry.getValue()[1];
+            if(operator.equals(">"))
+                ans.add( greater(column,ref, value));
+            else if(operator.equals(">="))
+                ans.add( greaterEqual(column,ref, value) );
+            else if(operator.equals("<"))
+                ans.add( smaller(column, ref, value) );
+            else if(operator.equals("<="))
+                ans.add( smallerEqual(column, ref, value) );
+            else if(operator.equals("="))
+                ans.add( equal(column, ref, value));
+            else if(operator.equals("!="))
+                ans.add( notEqual(column, ref, value) );
+            else
+                throw new DBAppException("Comparison operator "+ operator + " is invalid." );
+        }
+        return ans;
+    }
+
+    private Boolean greater(String column, Reference ref, Object value) throws DBAppException {
+        int comp = compareObjects(ref.getRelevantValues().get(indexedCols.indexOf(column)), value);
+        return comp > 0;
+    }
+
+    private Boolean greaterEqual(String column, Reference ref, Object value) throws DBAppException {
+        int comp = compareObjects(ref.getRelevantValues().get(indexedCols.indexOf(column)), value);
+        return comp >= 0;
+    }
+
+    private Boolean smaller(String column, Reference ref, Object value) throws DBAppException {
+        int comp = compareObjects(ref.getRelevantValues().get(indexedCols.indexOf(column)), value);
+        return comp < 0;
+    }
+
+    private Boolean smallerEqual(String column, Reference ref, Object value) throws DBAppException {
+        int comp = compareObjects(ref.getRelevantValues().get(indexedCols.indexOf(column)), value);
+        return comp <= 0;
+    }
+
+    private Boolean equal(String column, Reference ref, Object value) throws DBAppException {
+        int comp = compareObjects(ref.getRelevantValues().get(indexedCols.indexOf(column)), value);
+        return comp == 0;
+    }
+
+    private Boolean notEqual(String column, Reference ref, Object value) throws DBAppException {
+        int comp = compareObjects(ref.getRelevantValues().get(indexedCols.indexOf(column)), value);
+        return comp != 0;
+    }
+
+    /**
+     * Given a vector of booleans and the logical operator [AND/OR/XOR], it applies the operator
+     * on all elements of the vector and returns the result
+     * @param condResults
+     * @param logicalOp
+     * @return
+     */
+    private boolean evalLogicalOperator(Vector<Boolean> condResults, String logicalOp) {
+        if(logicalOp.toLowerCase(Locale.ROOT).equals("and"))
+            return condResults.stream().reduce(Boolean::logicalAnd).orElse(false);
+        else if(logicalOp.toLowerCase(Locale.ROOT).equals("or"))
+            return condResults.stream().reduce(Boolean::logicalOr).orElse(false);
+
+        return condResults.stream().reduce(Boolean::logicalXor).orElse(false);
     }
 }
